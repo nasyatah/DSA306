@@ -1,0 +1,42 @@
+---
+title: "EDAv1.0"
+output: html_document
+date: "2023-09-21"
+---
+
+```{r}
+# # OPEN CSV FILE HERE
+# transactions <- arrow::open_dataset(sources = "transactions.csv", format = "csv")
+# # SAVE DATASET IN PARQUET FORMAT HERE
+# # Create AAPL directory
+# dir.create("parquet_folder")  
+# #write parquet file to directory
+# transactions_data <- arrow::write_dataset(transactions,format = "parquet", path = "parquet_folder",partitioning = NULL)
+```
+
+```{r}
+#OPEN SAVED PARQUET FILE HERE
+transactions_parquet <- arrow::open_dataset(
+  sources = "parquet_folder/part-0.parquet",
+  format = "parquet")
+
+# Collect the data into a data frame
+transaction <- transactions_parquet |>
+  dplyr::collect()
+
+```
+
+```{r}
+library(sparklyr)
+library(dplyr)
+
+# Connect to a local instance of Spark
+sc <- spark_connect(master = "local", version = "3.4.0")
+```
+
+```{r}
+# Copy the transactions R data frame to Spark memory and create the R reference transaction_ref
+transaction_ref <- copy_to(sc, transaction)    
+head(transaction_ref, 4)  
+```
+
