@@ -21,7 +21,7 @@ transactions_parquet <- arrow::open_dataset(
   format = "parquet")
 
 # Collect the data into a data frame
-transaction <- transactions_parquet |>
+transaction_df <- transactions_parquet |>
   dplyr::collect()
 
 ```
@@ -36,10 +36,57 @@ sc <- spark_connect(master = "local", version = "3.4.0")
 
 ```{r}
 # Copy the transactions R data frame to Spark memory and create the R reference transaction_ref
-transaction_ref <- copy_to(sc, transaction)    
+transaction_ref <- copy_to(sc, transaction_df)    
 head(transaction_ref, 4)  
 ```
+1. Data Cleaning
+1.1 Generating summary statistics for every column - applicable to numerical variables
+```{r}
+#summary statistics for every column
+sdf_describe(transaction_ref, cols = colnames(transaction_ref)) 
+```
+1.2 Checking for null values in every column
+```{r}
+#check the number of na values present in every column 
+na_values <- transaction_ref |>
+  summarise_all(~sum(as.integer(is.na(.))))
+na_values
+```
+
+1.3 Checking for negative values in the Quantity column
+```{r}
+transaction_ref |> 
+  filter(Quantity < 0)
+  #collect()
+```
+1.4 Number of unique customerno
+```{r}
+unique_customers <- transaction_ref |>
+  group_by(CustomerNo) |>
+  summarise(count = n()) |> 
+  collect()
+
+row_count <- unique_customers |>
+  count()
+
+# Extract the count value
+total_rows <- row_count$n
+total_rows
+```
+
+1.5 removing rows with NA CustomerNo, and rows with negative quantity
 
 ```{r}
-#hello
+transaction_ref <- transaction_ref |>
+  filter(!is.na(CustomerNo) & Quantity > 0)
 ```
+
+
+
+
+
+
+
+
+
+
