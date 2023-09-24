@@ -52,6 +52,17 @@ na_values <- transaction_ref |>
   summarise_all(~sum(as.integer(is.na(.))))
 na_values
 ```
+```{r}
+#check for unique values 
+unique_date <- transaction_ref |>
+  select(Date) |>
+  distinct() |>
+  collect()
+
+unique_date
+```
+
+
 
 1.3 Checking for negative values in the Quantity column
 ```{r}
@@ -63,11 +74,11 @@ transaction_ref |>
 ```{r}
 unique_customers <- transaction_ref |>
   group_by(CustomerNo) |>
-  summarise(count = n()) |> 
+  summarise(count = n()) |>
   collect()
 
 row_count <- unique_customers |>
-  count()
+count()
 
 # Extract the count value
 total_rows <- row_count$n
@@ -81,10 +92,55 @@ transaction_ref <- transaction_ref |>
   filter(!is.na(CustomerNo) & Quantity > 0)
 ```
 
+1.6 Converting date to date format
+```{r}
+transaction_ref <- transaction_ref |>
+    mutate(
+    month = substring_index(Date, "/", 1),
+    day = substring_index(substring_index(Date, "/", -2), "/", 1),
+    year = substring_index(Date, "/", -1)
+  )
+# Add leading zeros to month and day
+transaction_ref <- transaction_ref |>
+  mutate(
+    month = lpad(month, 2, "0"),
+    day = lpad(day, 2, "0")
+  )
+
+# Combine the formatted values to create the "MM/dd/yyyy" date
+transaction_ref <- transaction_ref %>%
+  mutate(FormattedDate = concat(month, "/", day, "/", year)) |>
+  select(-month, -day, -year, -Date)
+
+#convert to date format from chr
+transaction_ref <-transaction_ref |>
+  mutate(date_parsed = to_date(FormattedDate, "MM/dd/yyyy"))
+
+transaction_ref
+
+```
 
 
+1.7 Create new columns for Recency, Frequency, Monetary values
+```{r}
+# Calculate Recency, Frequency, and Monetary values
+rfm_df <- transaction_ref |>
+  group_by(CustomerNo) |>
+  summarise(
+    Recency = as.numeric(datediff(max(date_parsed), current_date())),
+    Frequency = n(),
+    Monetary = sum(Price * Quantity)
+  )
 
+# Show the resulting RFM DataFrame
+head(rfm_df)
+```
 
+```{r}
+#transaction_df is the full dataset in R
+head(transaction_ref)
+
+```
 
 
 
