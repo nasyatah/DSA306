@@ -11,7 +11,7 @@ date: "2023-09-21"
 # # Create AAPL directory
 # dir.create("parquet_folder")  
 # #write parquet file to directory
-# transactions_data <- arrow::write_dataset(transactions,format = "parquet", path = "parquet_folder",partitioning = NULL)
+#arrow::write_dataset(transactions,format = "parquet", path = "parquet_folder",partitioning = NULL)
 ```
 
 ```{r}
@@ -137,12 +137,21 @@ head(rfm_df)
 ```
 
 ```{r}
-#transaction_df is the full dataset in R
-head(transaction_ref)
+#compute the percentile values for the Recency, Frequency and Monetary value columns 
 
+rfm_df <- rfm_df|>
+  mutate(r_percentile = percent_rank(Recency),
+         f_percentile = percent_rank(Frequency),
+         m_percentile = percent_rank(Monetary))
+
+head(rfm_df)
 ```
 
+```{r}
+#compute the r,f,m score 
 
+
+```
 
 
 
