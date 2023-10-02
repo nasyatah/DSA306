@@ -1,6 +1,6 @@
 ----------------------------------------------------------------
-Tue Sep 26 16:45:40 SGT 2023:
-Booting Derby version The Apache Software Foundation - Apache Derby - 10.14.2.0 - (1828579): instance a816c00e-018a-d0aa-5cb3-000002946e30 
+Mon Oct 02 23:20:05 SGT 2023:
+Booting Derby version The Apache Software Foundation - Apache Derby - 10.14.2.0 - (1828579): instance a816c00e-018a-f0f9-9ff8-000002d60760 
 on database directory memory:/Users/nasyatah./Documents/GitHub/DSA306/databaseName=metastore_db with class loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27 
 Loaded from file:/Users/nasyatah./spark/spark-3.4.0-bin-hadoop3/jars/derby-10.14.2.0.jar
 java.vendor=Amazon.com Inc.

@@ -122,16 +122,17 @@ transaction_ref
 
 
 1.7 Create new columns for Recency, Frequency, Monetary values
+https://www.investopedia.com/terms/r/rfm-recency-frequency-monetary-value.asp 
 ```{r}
 # Calculate Recency, Frequency, and Monetary values
 rfm_df <- transaction_ref |>
   group_by(CustomerNo) |>
   summarise(
-    Recency = as.numeric(datediff(max(date_parsed), current_date())),
+    Recency = as.numeric(datediff(max(date_parsed), to_date("2019-12-31"))),
     Frequency = n(),
-    Monetary = sum(Price * Quantity)
+    Monetary = sum(Price * Quantity),
+    ConcatenatedProductNames = concat_ws(", ", collect_list(ProductName))
   )
-
 # Show the resulting RFM DataFrame
 head(rfm_df)
 ```
