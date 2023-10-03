@@ -149,7 +149,6 @@ head(rfm_df)
 ```
 
 ```{r}
-#compute the r,f,m score 
 
 
 ```
