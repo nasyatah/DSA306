@@ -5,13 +5,13 @@ date: "2023-09-21"
 ---
 
 ```{r}
-# # OPEN CSV FILE HERE
+# OPEN CSV FILE HERE
 # transactions <- arrow::open_dataset(sources = "transactions.csv", format = "csv")
-# # SAVE DATASET IN PARQUET FORMAT HERE
-# # Create AAPL directory
+# SAVE DATASET IN PARQUET FORMAT HERE
+# Create AAPL directory
 # dir.create("parquet_folder")  
-# #write parquet file to directory
-#arrow::write_dataset(transactions,format = "parquet", path = "parquet_folder",partitioning = NULL)
+# write parquet file to directory
+# arrow::write_dataset(transactions,format = "parquet", path = "parquet_folder",partitioning = NULL)
 ```
 
 ```{r}
@@ -73,9 +73,19 @@ transaction_ref |>
 1.4 Number of unique customerno
 ```{r}
 unique_customers <- transaction_ref |>
-  group_by(CustomerNo) |>
-  summarise(count = n()) |>
+  group_by(CustomerNo, Country) |>
+  summarise(total_products_bought = n_distinct(ProductNo), 
+            total_spent = sum(Price*Quantity),
+            total_transactions = n())|>
   collect()
+
+unique_customers
+
+#initial code: changed code to add more variables per unique customer
+#unique_customers <- transaction_ref |>
+#  group_by(CustomerNo) |>
+#  summarise(count = n()) |>
+#  collect()
 
 row_count <- unique_customers |>
 count()
@@ -124,15 +134,20 @@ transaction_ref
 1.7 Create new columns for Recency, Frequency, Monetary values
 https://www.investopedia.com/terms/r/rfm-recency-frequency-monetary-value.asp 
 ```{r}
-# Calculate Recency, Frequency, and Monetary values
+# Calculate Recency, Frequency, and Monetary values 
+# edit: added variables to rfm_df
 rfm_df <- transaction_ref |>
-  group_by(CustomerNo) |>
+  group_by(CustomerNo, Country) |>
   summarise(
     Recency = as.numeric(datediff(max(date_parsed), to_date("2019-12-31"))),
     Frequency = n(),
     Monetary = sum(Price * Quantity),
-    ConcatenatedProductNames = concat_ws(", ", collect_list(ProductName))
-  )
+    ConcatenatedProductNames = concat_ws(", ", collect_list(ProductName)),
+    total_products_bought = n_distinct(ProductNo), 
+    total_spent = sum(Price*Quantity),
+    total_transactions = n()
+    )
+
 # Show the resulting RFM DataFrame
 head(rfm_df)
 ```
@@ -149,9 +164,12 @@ head(rfm_df)
 ```
 
 ```{r}
+#countries with the most customers 
+library(ggplot2)
+library(dbplot)
 
-
-```
+dbplot_bar(unique_customers, x = Country, Customers = sum(CustomerNo))
+`````
 
 
 
