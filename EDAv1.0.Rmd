@@ -36,7 +36,7 @@ sc <- spark_connect(master = "local", version = "3.4.0")
 
 ```{r}
 # Copy the transactions R data frame to Spark memory and create the R reference transaction_ref
-transaction_ref <- copy_to(sc, transaction_df, overwrite = TRUE)    
+transaction_ref <- copy_to(sc, transaction_df)    
 head(transaction_ref, 4)  
 ```
 1. Data Cleaning
