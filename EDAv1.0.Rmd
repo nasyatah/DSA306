@@ -236,6 +236,7 @@ plot_ly(data = popular_product, x = ~ProductName, y = ~Total_sold, type = "bar")
 
 #most popular item: paper craft little birdie
 ```
+
 ```{r}
 #most busy dates (most transactions)
 
