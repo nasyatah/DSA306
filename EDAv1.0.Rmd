@@ -96,7 +96,7 @@ total_rows
 1.5 removing rows with NA CustomerNo, and rows with negative quantity
 
 ```{r}
-transaction_df <- transaction_ref |>
+transaction_ref2 <- transaction_ref |>
   filter(!is.na(CustomerNo) & Quantity > 0) |>
   collect()
 
@@ -107,32 +107,35 @@ transaction_df <- transaction_ref |>
 ```{r}
 library(dplyr)
 
-transaction_df <- transaction_ref |>
+transaction_ref2 <- transaction_ref |>
     mutate(
     month = substring_index(Date, "/", 1),
     day = substring_index(substring_index(Date, "/", -2), "/", 1),
     year = substring_index(Date, "/", -1)
   ) 
 # Add leading zeros to month and day
-transaction_df <- transaction_ref |>
+transaction_ref2 <- transaction_ref2 |>
   mutate(
     month = lpad(month, 2, "0"),
     day = lpad(day, 2, "0")
   )
 
 # Combine the formatted values to create the "MM/dd/yyyy" date
-transaction_df <- transaction_ref %>%
+transaction_ref2 <- transaction_ref2 %>%
   mutate(FormattedDate = concat(year, "-", month, "-", day)) |>
   select(-month, -day, -year, -Date)
 
 #convert to date format from chr
-transaction_df <-transaction_ref |>
-  mutate(date_parsed = to_date(FormattedDate, "yyyy/mm/dd"))
+transaction_ref2 <-transaction_ref2 |>
+  mutate(date_parsed = to_date(FormattedDate, "yyyy-mm-dd"))
 
-transaction_df
+transaction_ref2
 
 ```
+```{r}
 
+
+```
 
 1.7 Create new columns for Recency, Frequency, Monetary values
 https://www.investopedia.com/terms/r/rfm-recency-frequency-monetary-value.asp 
