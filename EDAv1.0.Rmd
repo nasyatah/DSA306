@@ -298,4 +298,8 @@ dbplot_bar(num_customers, x = FormattedDate,  y= num_of_customers)
 ```
 
 
+```{r}
+#hello
+
+```
 
