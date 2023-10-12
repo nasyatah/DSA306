@@ -274,5 +274,28 @@ fig <- fig %>%
 fig
 ```
 
+```{r}
+#grouping the data by customer id and transaction date and get the count and then see how many rows have a count >1
+
+sameday_transasctions <- transaction_ref |>
+  group_by(CustomerNo, FormattedDate) |>
+  summarise(total_products_bought = n_distinct(ProductNo), 
+            total_spent = sum(Price*Quantity),
+            total_transactions = n())
+
+sameday_transasctions <- sameday_transasctions |>
+  filter(total_transactions> 1)
+sameday_transasctions
+
+num_customers <- sameday_transasctions |>
+  group_by(FormattedDate) |>
+  summarise(num_of_customers = n_distinct(CustomerNo))
+num_customers
+
+
+
+dbplot_bar(num_customers, x = FormattedDate,  y= num_of_customers)
+```
+
 
 
