@@ -56,8 +56,7 @@ na_values
 #check for unique values 
 unique_date <- transaction_ref |>
   select(Date) |>
-  distinct() |>
-  collect()
+  distinct()
 
 unique_date
 ```
@@ -68,12 +67,11 @@ unique_date
 ```{r}
 transaction_ref |> 
   filter(Quantity < 0)
-  #collect()
 ```
 1.4 Number of unique customerno
 ```{r}
 unique_customers <- transaction_ref |>
-  group_by(CustomerNo, Country) |>
+  group_by(CustomerNo, Country) |> #finds out which country is each customer from
   summarise(total_products_bought = n_distinct(ProductNo), 
             total_spent = sum(Price*Quantity),
             total_transactions = n())|>
@@ -81,7 +79,7 @@ unique_customers <- transaction_ref |>
 
 unique_customers
 
-#initial code: changed code to add more variables per unique customer
+#initial code: changed code to add more columns 
 #unique_customers <- transaction_ref |>
 #  group_by(CustomerNo) |>
 #  summarise(count = n()) |>
@@ -98,35 +96,40 @@ total_rows
 1.5 removing rows with NA CustomerNo, and rows with negative quantity
 
 ```{r}
-transaction_ref <- transaction_ref |>
-  filter(!is.na(CustomerNo) & Quantity > 0)
+transaction_df <- transaction_ref |>
+  filter(!is.na(CustomerNo) & Quantity > 0) |>
+  collect()
+
+#USE TRANS DF FOR ALL FUTURE ANALYSIS??
 ```
 
 1.6 Converting date to date format
 ```{r}
-transaction_ref <- transaction_ref |>
+library(dplyr)
+
+transaction_df <- transaction_ref |>
     mutate(
     month = substring_index(Date, "/", 1),
     day = substring_index(substring_index(Date, "/", -2), "/", 1),
     year = substring_index(Date, "/", -1)
-  )
+  ) 
 # Add leading zeros to month and day
-transaction_ref <- transaction_ref |>
+transaction_df <- transaction_ref |>
   mutate(
     month = lpad(month, 2, "0"),
     day = lpad(day, 2, "0")
   )
 
 # Combine the formatted values to create the "MM/dd/yyyy" date
-transaction_ref <- transaction_ref %>%
-  mutate(FormattedDate = concat(month, "/", day, "/", year)) |>
+transaction_df <- transaction_ref %>%
+  mutate(FormattedDate = concat(year, "-", month, "-", day)) |>
   select(-month, -day, -year, -Date)
 
 #convert to date format from chr
-transaction_ref <-transaction_ref |>
-  mutate(date_parsed = to_date(FormattedDate, "MM/dd/yyyy"))
+transaction_df <-transaction_ref |>
+  mutate(date_parsed = to_date(FormattedDate, "yyyy/mm/dd"))
 
-transaction_ref
+transaction_df
 
 ```
 
@@ -165,11 +168,135 @@ head(rfm_df)
 
 ```{r}
 #countries with the most customers 
-library(ggplot2)
 library(dbplot)
+library(ggplot2)
 
+<<<<<<< HEAD
 dbplot_bar(unique_customers, x = Country, Customers = sum(CustomerNo))
 `````
+```{r}
+#grouping the data by customer id and transaction date and get the count and then see how many rows have a count >1
 
+sameday_transasctions <- transaction_ref |>
+  group_by(CustomerNo, FormattedDate) |>
+  summarise(total_products_bought = n_distinct(ProductNo), 
+            total_spent = sum(Price*Quantity),
+            total_transactions = n())
+
+sameday_transasctions <- sameday_transasctions |>
+  filter(total_transactions> 1)
+sameday_transasctions
+
+num_customers <- sameday_transasctions |>
+  group_by(FormattedDate) |>
+  summarise(num_of_customers = n_distinct(CustomerNo))
+num_customers
+
+dbplot_bar(num_customers, x = FormattedDate,  y= n_distinct(CustomerNo))
+```
+=======
+customer_base <- unique_customers |> 
+  group_by(Country) |>
+  summarise(Customers = sum(CustomerNo)) |> 
+  na.omit(customer_base) |>
+  filter(Customers > 150000) |> #tryna cut down the data base, filtering out countries with "too low" customer bases
+  collect()
+
+dbplot_bar(customer_base, x = Country, Customers) + labs(title = "Customers per country", subtitle = "Identifying countries with the largest customer base")
+```
+
+```{r}
+#country by customerbase (number of customers)
+#same graph as above, but with map (think this is better cos i didnt omit data)
+
+library(rworldmap)
+
+customer_base1 <- unique_customers |> 
+  group_by(Country) |>
+  summarise(Customers = sum(CustomerNo)) |> 
+  na.omit(customer_base) |>
+  collect()
+
+c1 <- joinCountryData2Map(customer_base1, joinCode="NAME", nameJoinColumn="Country")
+mapCountryData(c1, nameColumnToPlot="Customers", catMethod="logFixedWidth", colourPalette = "heat", addLegend = TRUE, mapTitle = "Customerbase per country")
+
+#zoom zoom
+map_region <- "Europe"
+c1_europe <- mapCountryData(c1, nameColumnToPlot="Customers", mapRegion = "Europe", addLegend=FALSE, mapTitle = "Customers in Europe Region")
+
+#from this we can see that idk i think its france/germany that has a high customer data base im bad at geography
+
+```
+
+```{r}
+#country by expenditure 
+
+customerbase2 <- unique_customers |> 
+  group_by(Country) |> 
+  summarise(Expenditure = sum(total_spent)) |> 
+  collect()
+
+c2 <- joinCountryData2Map(customerbase2, joinCode="NAME", nameJoinColumn="Country")
+mapCountryData(c2, nameColumnToPlot="Expenditure", catMethod="fixedWidth", colourPalette = "heat", addLegend = TRUE, mapTitle = "Expenditure per country")
+
+c2_europe <- mapCountryData(c2, nameColumnToPlot="Expenditure", mapRegion = "Europe", addLegend=FALSE, mapTitle = "Expenditure in Europe Region")
+
+```
+
+```{r}
+#product analysis 
+
+popular_product <- transaction_df |> 
+  group_by(ProductName, ProductNo) |> 
+  summarise(Total_sold = sum(Quantity)) |>
+  collect()
+
+popular_product
+#there are 3753 products
+
+library(plotly)
+plot_ly(data = popular_product, x = ~ProductName, y = ~Total_sold, type = "bar") %>%
+  layout(title = "Most Popular Products", xaxis = list(categoryorder = "total descending"))
+
+#most popular item: paper craft little birdie
+```
+```{r}
+#most busy dates (most transactions)
+
+busy_dates <- transaction_df |>
+  group_by(Date) |>
+  mutate(Date = as.Date(Date, format = "%y/%m/%d")) |>
+  summarise(Total_transactions = n()) |>
+  collect()
+
+busy_dates[order(busy_dates$Total_transactions, decreasing = TRUE), ]
+
+#busiest months in the year: nov, dec
+
+fig <- plot_ly(busy_dates, type = 'scatter', mode = 'lines')%>%
+  add_trace(x = ~Date, y = ~Total_transactions)%>%
+  layout(showlegend = F, title='Time Series with Range Slider and Selectors',
+         xaxis = list(rangeslider = list(visible = T),
+                      rangeselector=list(
+                        buttons=list(
+                          list(count=1, label="1m", step="month", stepmode="backward"),
+                          list(count=6, label="6m", step="month", stepmode="backward"),
+                          list(count=1, label="YTD", step="year", stepmode="todate"),
+                          list(count=1, label="1y", step="year", stepmode="backward"),
+                          list(step="all")
+                        ))))
+fig <- fig %>%
+  layout(
+         xaxis = list(zerolinecolor = '#ffff',
+                      zerolinewidth = 2,
+                      gridcolor = 'ffff'),
+         yaxis = list(zerolinecolor = '#ffff',
+                      zerolinewidth = 2,
+                      gridcolor = 'ffff'),
+         plot_bgcolor='#e5ecf6', margin = 0.1, width = 900)
+fig
+```
+
+>>>>>>> d1ab155eb76412b4974f687a354976d2546ec43d
 
 
