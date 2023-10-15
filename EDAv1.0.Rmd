@@ -305,6 +305,84 @@ fig <- fig %>%
 fig
 ```
 
+#Visualize the top 5 and bottom 5 products in terms of sales volume
+```{r}
+#group the products and sum the quantity for every product, then arrange in descending order based on quantity
+ranked_products <- transaction_ref2 |>
+  filter(Quantity >= 0 & !is.na(CustomerNo)) |>
+  group_by(ProductName,ProductNo) |>
+  summarise(Quantity_sold = sum(Quantity)) |>
+  arrange(desc(Quantity_sold)) |>
+  collect()
+
+#choose the top 5 rows
+top_5_products <- head(ranked_products,5)
+#choose the bottom 5 rows
+bottom_5_products <- tail(ranked_products, 5)
+
+top_5_products
+bottom_5_products
+
+#visualise top 5
+ggplot(top_5_products, aes(x = reorder(ProductName, -Quantity_sold), y = Quantity_sold)) +
+  geom_bar(stat = "identity", fill = "green") +
+  coord_flip() +  # Make it a horizontal bar chart
+  labs(x = "Product Name", y = "Total Quantity Sold") +
+  ggtitle("Top 5 Products by Total Quantity Sold") + 
+  theme_minimal()
+
+#visualise bottom 5
+ggplot(bottom_5_products, aes(x = reorder(ProductName, -Quantity_sold), y = Quantity_sold)) +
+  geom_bar(stat = "identity", fill = "red") +
+  coord_flip() +  # Make it a horizontal bar chart
+  labs(x = "Product Name", y = "Total Quantity Sold") +
+  ggtitle("Bottom 5 Products by Total Quantity Sold") + 
+  theme_minimal()
+
+```
+
+#Quantity sold of the top 5 products throughout the year - checking for seasonality 
+```{r}
+############################################################################################
+#can change this based on which products/countries we wanna analyse
+products_to_analyse = c("22197","84077","85099B","84879","21212")
+country_to_analyse = "United Kingdom"
+############################################################################################
+
+#This dataframe groups the data by month, product and countrry, and the values for Price is aggregated to get the Average price since one item can have multiple different prices, and quantity is aggregated with the sum function. 
+different_months <- transaction_ref2 |>
+  filter(ProductNo %in% products_to_analyse,
+         Country == country_to_analyse) |>
+  mutate(month_sold = Month(FormattedDate)) |>
+  group_by(ProductNo, ProductName, Country, month_sold) |> 
+  summarise(Quantity = sum(Quantity),
+            Avg_Price = mean(Price)) |>
+  collect()
+
+#View the collected Spark dataframe
+different_months 
+
+#Visualising the quantity sold every month for the top 5 products
+ggplot(different_months, aes(x = month_sold, y = Quantity, color = ProductName)) +
+  geom_line() +
+  scale_x_continuous(breaks = 1:12, labels = month.abb[1:12]) +  # Set numeric months and labels
+  labs(x = "Month", y = "Quantity Sold") +
+  ggtitle("Quantity Sold per Month for Selected Products") +
+  theme(legend.position = "top") + 
+  theme_minimal()
+
+#Visualising the change in average prices of the products every month
+ggplot(different_months, aes(x = month_sold, y = Avg_Price, color = ProductName)) +
+  geom_line() +
+  scale_x_continuous(breaks = 1:12, labels = month.abb[1:12]) +  # Set numeric months and labels
+  labs(x = "Month", y = "Average Price") +
+  ggtitle("Average Price per Month for Selected Products") +
+  theme(legend.position = "top") + 
+  theme_minimal()
+
+###INSIGHTS####
+#Prices for most products dip in October which is also when there is a spike in Quantity of products sold. However some #products such as World War 2 Gliders Asstd Designs see a drop in sales in October even with a drop in price. This data can be #used to assist managers in their pricing strategies for the various products. 
+```
 
 ##############################################################################################################################
 4. MODELING IN SPARK
