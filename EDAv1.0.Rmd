@@ -98,6 +98,8 @@ transaction_ref2 <- transaction_ref |>
   #collect()
 
 #USE TRANS DF FOR ALL FUTURE ANALYSIS??
+
+# should we still refer to ref instead of ref2 as we will get unfiltered data
 ```
 
 2.2 Converting date to date format
@@ -166,9 +168,7 @@ unique_customers <- transaction_ref2 |>
   group_by(CustomerNo, Country) |> #finds out which country is each customer from
   summarise(total_products_bought = n_distinct(ProductNo), 
             total_spent = sum(Price*Quantity),
-            total_transactions = n())|>
-  collect()
-
+            total_transactions = n())
 ```
 
 ```{r}
@@ -194,9 +194,7 @@ sameday_transasctions <- sameday_transasctions |>
 sameday_transasctions
 
 num_customers <- sameday_transasctions |>
-  group_by(FormattedDate) |>
-  summarise(num_of_customers = n_distinct(CustomerNo))
-num_customers |> collect()
+  group_by(FormattedDate) 
 
 dbplot_bar(num_customers, x = FormattedDate,  y= n_distinct(CustomerNo))
 ```
