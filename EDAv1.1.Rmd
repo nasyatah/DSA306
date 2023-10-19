@@ -285,45 +285,77 @@ plot_ly(data = popular_product, x = ~ProductName, y = ~Total_sold, type = "bar")
 ```
 
 ```{r}
-#most busy dates (most transactions)
+#granularity must go down to the monthly basis
+#is the diference between the number of transactions (peaks vs adj months) against time signifcant?
 
-busy_dates <- transaction_ref2 |>
-  group_by(FormattedDate)|>
-  summarise(Total_transactions = n()) |>
+table1 <- transaction_ref2 |> 
+  mutate(month = Month(FormattedDate)) |>
+  group_by(month) |>
+  summarize(Number_of_transactions = n_distinct(TransactionNo)) |>
   collect()
 
-busy_dates[order(busy_dates$Total_transactions, decreasing = TRUE), ]
+table1 |>
+  arrange(month)
 
-#busiest months in the year: nov, dec
+lm_fit1 <- lm(month ~ Number_of_transactions, data = table1)
+summary(lm_fit1)
 
-fig <- plot_ly(busy_dates, type = 'scatter', mode = 'lines')%>%
-  add_trace(x = ~FormattedDate, y = ~Total_transactions)%>%
-  layout(showlegend = F, title='Time Series with Range Slider and Selectors',
-         xaxis = list(rangeslider = list(visible = T),
-                      rangeselector=list(
-                        buttons=list(
-                          list(count=1, label="1m", step="month", stepmode="backward"),
-                          list(count=6, label="6m", step="month", stepmode="backward"),
-                          list(count=1, label="YTD", step="year", stepmode="todate"),
-                          list(count=1, label="1y", step="year", stepmode="backward"),
-                          list(step="all")
-                        ))))
-fig <- fig %>%
-  layout(
-         xaxis = list(zerolinecolor = '#ffff',
-                      zerolinewidth = 2,
-                      gridcolor = 'ffff'),
-         yaxis = list(zerolinecolor = '#ffff',
-                      zerolinewidth = 2,
-                      gridcolor = 'ffff'),
-         plot_bgcolor='#e5ecf6', margin = 0.1, width = 900)
-fig
+BIC(lm_fit)
 
-#granularity must go down to the monthly basis
+#plot number of transactions against months
+library(ggplot2)
 
-#is the diference between the number of transactions (peaks vs adj months) against time signifcant?
-#in that particular month --> what is the compoiton of products --> which is the top 5 and bottom 5 
+ggplot(table1, aes(x = month, y = Number_of_transactions)) +
+  geom_line() + 
+  scale_x_continuous(breaks = 1:12, labels = month.abb[1:12]) +
+  labs(x = "Month", y = "Number of Transactions") + 
+  theme_minimal()
+
+##--------------------------------------------------------------------------------------------------------------
+#November has the highest number of transactions - 2753
+##--------------------------------------------------------------------------------------------------------------
+
+#in that particular month --> what is the composition of products --> which is the top 5 and bottom 5 
+table2 <- transaction_ref2 |> 
+  filter(Month(FormattedDate) == 11) |>
+  group_by(ProductName, ProductNo) |>
+  summarize(count = n()) |>
+  collect()
+
+table2 |> 
+  arrange(desc(count))
+  
+
+##--------------------------------------------------------------------------------------------------------------
+#Top 5 in November -> Rabbit Night Light, Paper Chain Kit 50'S Christmas, Hot Water Bottle Keep Calm, Paper Chain Kit Vintage Christmas, Jumbo Bag 50'S Christmas
+#Bottom 5 in November -> Cake Plate Lovebird White, I'm On Holiday Metal Sign, Vintage Union Jack Memoboard, Yellow Giant Garden Thermometer, Blue Happy Birthday Bunting
+##--------------------------------------------------------------------------------------------------------------
+
 #in those products, which is the one with the greatest increase from last month (test p-value) --> demand for speeific 
+
+#qty sold in month == 10
+table3 <- transaction_ref2 |>
+  filter(Month(FormattedDate) == 10) |>
+  group_by(ProductName, ProductNo) |>
+  summarize(count_prev_month = n()) |>
+  collect()
+
+table31 <- table3 |>
+    filter(ProductName %in% c("Rabbit Night Light", "Paper Chain Kit 50'S Christmas", "Hot Water Bottle Keep Calm", "Paper Chain Kit Vintage Christmas", "Jumbo Bag 50'S Christmas"))
+
+table2 <- table2 |>
+  filter(ProductName %in% c("Rabbit Night Light", "Paper Chain Kit 50'S Christmas", "Hot Water Bottle Keep Calm", "Paper Chain Kit Vintage Christmas", "Jumbo Bag 50'S Christmas")) |>
+  collect()
+
+#combine table 2 and 3
+table4 <- merge(table31, table2, by= c("ProductNo","ProductName"))
+
+table4 |>
+  mutate(change_from_prev_month = count - count_prev_month) |>
+  arrange(desc(change_from_prev_month))
+
+  
+
 
 ```
 
