@@ -144,14 +144,13 @@ This Spark dataframe has been grouped - columns are transformed so that it can b
 https://www.investopedia.com/terms/r/rfm-recency-frequency-monetary-value.asp 
 ```{r}
 transaction_ref3 <- transaction_ref2 |>
-  filter(!is.null(CustomerNo)) |>
-  group_by(CustomerNo, Country) |>
+  group_by(CustomerNo) |>
   summarise(
-    Recency = as.numeric(datediff(max(FormattedDate), to_date("2019-12-31")))*(-1),
+    Recency = as.numeric(datediff(max(FormattedDate), to_date("2019-12-31"))*(-1)),
     Frequency = n_distinct(TransactionNo),
     Monetary = sum(Price * Quantity),
-    ConcatenatedProductNames = concat_ws(", ", collect_list(ProductName)),
-    ) 
+    ConcatenatedProductNames = concat_ws(", ", collect_list(ProductName))
+  )
 
 transaction_ref3
 
@@ -160,28 +159,47 @@ transaction_ref3
 
 ```{r}
 #standardised values
+# 
+#  transaction_ref3|>  
+#   sdf_describe(cols = c("Recency","Frequency", "Monetary"))
+# 
+# rfm_stats <- transaction_ref3 |>  
+#   summarize(
+#     m_r = mean(Recency),
+#     s_r = sd(Recency),
+#     m_f = mean(Frequency),
+#     s_f = sd(Frequency),
+#     m_m = mean(Monetary),
+#     s_m = sd(Monetary)
+#   ) |>  
+#   collect()
+# 
+# rfm_stats
+# 
+# transaction_ref3 <- transaction_ref3 |>  
+#   mutate(stdz_recency  = (Recency - !!rfm_stats$m_r) / !!rfm_stats$s_r)
+#          #stdz_freqency  = (Frequency - !!rfm_stats$m_f) / !!rfm_stats$s_f,
+#          #stdz_monetary  = (Monetary - !!rfm_stats$m_m) / !!rfm_stats$s_m )  
 
- transaction_ref3|>  
-  sdf_describe(cols = c("Recency","Frequency", "Monetary"))
-
-rfm_stats <- transaction_ref3 |>  
+rfm_stats <- transaction_ref3 |>
   summarize(
-    m_r = mean(Recency),
-    s_r = sd(Recency),
-    m_f = mean(Frequency),
-    s_f = sd(Frequency),
-    m_m = mean(Monetary),
-    s_m = sd(Monetary)
-  ) |>  
-  collect()
+    r_mean = mean(Recency), 
+    r_sd = sd(Recency), 
+    f_mean = mean(Frequency),
+    f_sd = sd(Frequency),
+    m_mean = mean(Monetary),
+    m_sd = sd(Monetary)
+  ) |> collect()
 
-rfm_stats
+#rfm_stats
 
-transaction_ref3 <- transaction_ref3 |>  
-  mutate(stdz_recency  = (Recency - !!rfm_stats$m_r) / !!rfm_stats$s_r)
-         #stdz_freqency  = (Frequency - !!rfm_stats$m_f) / !!rfm_stats$s_f,
-         #stdz_monetary  = (Monetary - !!rfm_stats$m_m) / !!rfm_stats$s_m )  
+transaction_ref3_1 <- transaction_ref3 |>
+  mutate(R_standardized = (Recency - !!rfm_stats$r_mean) / !!rfm_stats$r_sd,
+         F_standardized = (Frequency - !!rfm_stats$f_mean) / !!rfm_stats$f_sd,
+         M_standardized = (Monetary - !!rfm_stats$m_mean) / !!rfm_stats$m_sd) 
 
+transaction_ref3_1 |> 
+  sdf_describe(cols = c("R_standardized","F_standardized","M_standardized"))
 ```
 
 ```{r}
@@ -217,6 +235,13 @@ fit_4$summary$r2adj #0.3651117
 
 ```
 ```{r}
+fit_1 |> tidy()
+fit_2 |> tidy()
+fit_3 |> tidy()
+fit_4 |> tidy()
+```
+
+```{r}
 # out of sample test with MSE
 pred_1 <- ml_predict(fit_3, dataset = transaction_ref3_test)
 MSE_1 <- ml_regression_evaluator(
@@ -240,11 +265,11 @@ MSE_2
 
 ```{r}
 #3D Graph
-transaction_ref3_train
+#transaction_ref3_train
 library(rgl)
-x <- collect(transaction_ref3_train$Monetary)
-y <- collect(transaction_ref3_train$Recency)
-z <- collect(transaction_ref3_train$Frequency)
+x <- collect(transaction_ref3_train$M_standardized)
+y <- collect(transaction_ref3_train$R_standardized)
+z <- collect(transaction_ref3_train$F_standardized)
 transaction_ref3_train |> plot3d( x,y,z, col = "blue", xlab = "Monetary", ylab = "Recency", zlab = "Frequency", main = "3D Plot")
 
 ```
