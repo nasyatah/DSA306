@@ -151,18 +151,76 @@ transaction_ref3 <- transaction_ref2 |>
     Frequency = n_distinct(TransactionNo),
     Monetary = sum(Price * Quantity),
     ConcatenatedProductNames = concat_ws(", ", collect_list(ProductName)),
-    ) |> collect()
+    ) 
 
 transaction_ref3
 
-reg <- lm(Monetary ~ Recency + Frequency, data = transaction_ref3)
+```
 
-summary(reg)
 
+```{r}
+#standardised values
+
+ transaction_ref3|>  
+  sdf_describe(cols = c("Recency","Frequency", "Monetary"))
+
+rfm_stats <- transaction_ref3 |>  
+  summarize(
+    m_r = mean(Recency),
+    s_r = sd(Recency),
+    m_f = mean(Frequency),
+    s_f = sd(Frequency),
+    m_m = mean(Monetary),
+    s_m = sd(Monetary)
+  ) |>  
+  collect()
+
+rfm_stats
+
+transaction_ref3 <- transaction_ref3 |>  
+  mutate(stdz_recency  = (Recency - !!rfm_stats$m_r) / !!rfm_stats$s_r)
+         #stdz_freqency  = (Frequency - !!rfm_stats$m_f) / !!rfm_stats$s_f,
+         #stdz_monetary  = (Monetary - !!rfm_stats$m_m) / !!rfm_stats$s_m )  
+
+```
+
+```{r}
 #regress monetary with receny and frequency --> any relationshisp
 #Receny --> 
 #Frequency eda --> understand the purchasing habits (primary variable)
+
+#to regress make train and test set
+transaction_ref3_split <- transaction_ref3 |>  
+  sdf_random_split(training = 0.8, testing = 0.2, seed = 44)
+
+transaction_ref3_train <- transaction_ref3_split$training
+transaction_ref3_test <- transaction_ref3_split$testing
+
+fit_1 <- transaction_ref3_train |> 
+  ml_linear_regression(formula = Monetary ~ Recency)
+
+fit_2 <- transaction_ref3_train |> 
+  ml_linear_regression(formula = Monetary ~ Frequency)
+
+fit_3 <- transaction_ref3_train |> 
+  ml_linear_regression(formula = Monetary ~ Frequency + Recency) 
+
+fit_4 <- transaction_ref3_train |> 
+  ml_linear_regression(formula = Monetary ~ Frequency + Recency + Frequency*Recency) 
+
+fit_1$summary$r2adj #0.01847029
+fit_2$summary$r2adj #0.362241
+fit_3$summary$r2adj #0.3633167
+fit_4$summary$r2adj #0.3651117
+
+#the r^2 indicates that frequncy is a much more significant predictor of monetary than recency is
+
 ```
+```{r}
+# out of sample test with MSE
+
+```
+
 
 ##############################################################################################################################
 3. EDA AND DATA VISUALIZATION

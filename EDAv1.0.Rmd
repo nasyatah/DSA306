@@ -129,6 +129,9 @@ transaction_ref2 <-transaction_ref2 |>
   mutate(FormattedDate = to_date(FormattedDate))
 
 transaction_ref2
+
+
+
 ```
 ############### CLEANED DATAFRAME 2 - transaction_ref3 ######################################################################
 This Spark dataframe has been grouped - columns are transformed so that it can be used as inputs to the ML model
