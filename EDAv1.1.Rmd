@@ -218,9 +218,36 @@ fit_4$summary$r2adj #0.3651117
 ```
 ```{r}
 # out of sample test with MSE
+pred_1 <- ml_predict(fit_3, dataset = transaction_ref3_test)
+MSE_1 <- ml_regression_evaluator(
+pred_1,
+label_col = "Monetary",
+prediction_col = "prediction",
+metric_name = "mse"
+)
 
+pred_2 <- ml_predict(fit_4, dataset = transaction_ref3_test)
+MSE_2 <- ml_regression_evaluator(
+pred_2,
+label_col = "Monetary",
+prediction_col = "prediction",
+metric_name = "mse"
+)
+
+MSE_1
+MSE_2
 ```
 
+```{r}
+#3D Graph
+transaction_ref3_train
+library(rgl)
+x <- collect(transaction_ref3_train$Monetary)
+y <- collect(transaction_ref3_train$Recency)
+z <- collect(transaction_ref3_train$Frequency)
+transaction_ref3_train |> plot3d( x,y,z, col = "blue", xlab = "Monetary", ylab = "Recency", zlab = "Frequency", main = "3D Plot")
+
+```
 
 ##############################################################################################################################
 3. EDA AND DATA VISUALIZATION
