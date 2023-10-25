@@ -106,7 +106,7 @@ library(dplyr)
 
 transaction_ref2 <- transaction_ref2 |>
     mutate(
-    month = substring_index(Date, "/", 1),
+    month = substring_index(Date, "/", 1), #anyone else can't do substring?
     day = substring_index(substring_index(Date, "/", -2), "/", 1),
     year = substring_index(Date, "/", -1)
   ) 
@@ -369,29 +369,69 @@ c2_europe <- mapCountryData(c2, nameColumnToPlot="Expenditure", mapRegion = "Eur
 ```
 
 ```{r}
-#product analysis 
+#product analysis by understanding the revenue contribution is pareto distributed
 
-popular_product <- transaction_ref2 |> 
-  group_by(ProductName, ProductNo) |> 
-  summarise(Total_sold = sum(Quantity)) |>
-  arrange(desc(Total_sold)) |>
-  collect()
+library(sparklyr)
+library(dbplyr)
+library(dbplot)
 
-popular_product 
-#there are 3753 products
+# 1. Feature Engineering
+transaction_ref2_spark <- transaction_ref2_spark %>%
+  mutate(Revenue = Price * Quantity)
 
-library(plotly)
-plot_ly(data = popular_product, x = ~ProductName, y = ~Total_sold, type = "bar") %>%
-  layout(title = "Most Popular Products", xaxis = list(categoryorder = "total descending"))
+product_rfm <- transaction_ref2_spark %>%
+  group_by(ProductNo, ProductName) %>%
+  summarise(
+    Recency = as.numeric(difftime(max(as.Date("2019-09-12")), max(as.Date(FormattedDate, format="%Y-%m-%d")), units = "days")),
+    Frequency = n(),
+    Monetary = sum(Revenue)
+  ) %>%
+  arrange(desc(Monetary), desc(Frequency), Recency)
 
-#most popular item: paper craft little birdie
+# 2. Pareto Analysis
+product_rfm <- product_rfm %>%
+  mutate(CumulativeRevenue = cumsum(Monetary))
 
-#the average interval between sales of product --> frequency over a period time
+revenue_threshold <- sum(product_rfm$Monetary) * 0.8
+top_products <- product_rfm %>%
+  filter(CumulativeRevenue <= revenue_threshold)
 
+# Visualize the Pareto distribution of top products
+db_plot(top_products, ProductName, Monetary) +
+  labs(title="Top Products by Revenue", x="Product Name", y="Revenue")
 
-#product LTV = product monetary value x frequency 
+# 3. Empirical Verification using Pareto Principle
+cumulative_revenue <- sum(product_rfm$Monetary)
+total_revenue <- sum(product_rfm$Monetary)
+top_20_percent_products <- sum(cumulative_revenue <= 0.8 * total_revenue)
+cat("Percentage of products contributing to 80% revenue:", (top_20_percent_products / nrow(product_rfm)) * 100, "%\n")
 
+# 4. T-test Verification
+# Note: T-test requires data collection to R as Spark doesn't natively support this test
+top_product_local <- collect(top_products)
+rest_of_product_local <- collect(product_rfm) %>% 
+  filter(!ProductNo %in% top_product_local$ProductNo)
+t_test_result <- t.test(top_product_local$Monetary, rest_of_product_local$Monetary)
+cat("T-test results comparing top products to the rest:\n")
+print(t_test_result)
 
+# Visualization for T-test
+means <- data.frame(
+  Group = c("Top Products", "Rest of the Products"),
+  Mean = c(top_product_means, rest_of_product_means)
+)
+ggplot(means, aes(x=Group, y=Mean)) +
+  geom_bar(stat="identity") +
+  labs(title="Mean Monetary Value Comparison", x="", y="Mean Monetary Value")
+
+# 5. Kolmogorov-Smirnov Test
+fit <- fitdist(top_products$Monetary, "pareto")
+ks_results <- gofstat(fit)
+print(ks_results$kstest)
+summary(fit)
+
+# Visualization for KS Test
+plot(fit)
 ```
 
 ```{r}
