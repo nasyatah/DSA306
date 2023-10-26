@@ -98,7 +98,7 @@ This Spark dataframe has not been grouped, and only the raw data columns have be
 2.1 removing rows with NA CustomerNo, and rows with negative quantity
 
 ```{r}
-transaction_ref2 <- transaction_ref |>
+transaction_clean <- transaction_ref |>
   filter(!is.na(CustomerNo) & Quantity > 0 & !is.null(CustomerNo))
 
 ```
@@ -107,29 +107,29 @@ transaction_ref2 <- transaction_ref |>
 ```{r}
 library(dplyr)
 
-transaction_ref2 <- transaction_ref2 |>
+transaction_clean <- transaction_clean |>
     mutate(
     month = substring_index(Date, "/", 1), #anyone else can't do substring?
     day = substring_index(substring_index(Date, "/", -2), "/", 1),
     year = substring_index(Date, "/", -1)
   ) 
 # Add leading zeros to month and day
-transaction_ref2 <- transaction_ref2 |>
+transaction_clean <- transaction_clean |>
   mutate(
     month = lpad(month, 2, "0"),
     day = lpad(day, 2, "0")
   )
 
 # Combine the formatted values to create the "yyyy/mm/dd" date
-transaction_ref2 <- transaction_ref2 |>
+transaction_clean <- transaction_clean |>
   mutate(FormattedDate = concat(year, "-", month, "-", day)) |>
   select(-month, -day, -year, -Date)
 
 #convert to date format from chr
-transaction_ref2 <-transaction_ref2 |>
+transaction_clean <-transaction_clean |>
   mutate(FormattedDate = to_date(FormattedDate))
 
-transaction_ref2
+transaction_clean
 
 ```
 
@@ -148,7 +148,7 @@ This Spark dataframe has been grouped - columns are transformed so that it can b
 2.3 Create new columns for Recency, Frequency, Monetary values and their respective standardized values
 https://www.investopedia.com/terms/r/rfm-recency-frequency-monetary-value.asp 
 ```{r}
-transaction_ref_customer <- transaction_ref2 |>
+transaction_ref_customer <- transaction_clean |>
   group_by(CustomerNo) |>
   summarise(
     Recency = as.numeric(datediff(max(FormattedDate), to_date("2019-12-31"))*(-1)),
@@ -284,7 +284,7 @@ transaction_customer_train |> plot3d( x,y,z, col = "blue", xlab = "Monetary", yl
 ##############################################################################################################################
 Unique_customers table
 ```{r}
-unique_customers <- transaction_ref2 |>
+unique_customers <- transaction_clean |>
   group_by(CustomerNo, Country) |> #finds out which country is each customer from
   summarise(total_products_bought = n_distinct(ProductNo), 
             total_spent = sum(Price*Quantity),
@@ -304,7 +304,6 @@ dbplot_bar(unique_customers, x = Country, Customers = n_distinct(CustomerNo))
 ```
 
 ```{r}
-
 customer_base <- unique_customers |> 
   group_by(Country) |>
   summarise(Customers = n_distinct(CustomerNo)) |> 
@@ -362,38 +361,39 @@ library(dbplyr)
 library(dbplot)
 
 # 1. Feature Engineering
-transaction_ref2_spark <- transaction_ref2 %>%
-  mutate(Revenue = Price * Quantity)
+transaction_ref_product <- transaction_clean |>
+  mutate(Revenue = Price * Quantity) #creating revenue column
 
-product_rfm <- transaction_ref2_spark %>%
-  group_by(ProductNo, ProductName) %>%
+product_rfm <- transaction_ref_product |>
+  group_by(ProductNo, ProductName) |>
   summarise(
     Recency = as.numeric(datediff(to_date("2019-09-12"), max(FormattedDate))),
     Frequency = n(), #num of transactions the product appears in
     Monetary = sum(Revenue)
-  ) %>%
+  ) |>
   arrange(desc(Monetary))
 
 # 2. Pareto Analysis
 product_rfm <- product_rfm |>
    arrange(desc(Monetary)) |>
-   mutate(CumulativeRevenue = cumsum(Monetary)) |>
-  collect()
+   mutate(CumulativeRevenue = cumsum(Monetary)) |> collect()
 
- revenue_threshold <- sum(product_rfm$Monetary) * 0.8
+revenue_threshold <- sum(product_rfm$CumulativeRevenue) * 0.8 #cutoff
  
- top_products <- product_rfm %>%
-   filter(CumulativeRevenue <= revenue_threshold) |>
-   arrange(desc(CumulativeRevenue))
+top_products <- product_rfm |>
+  filter(Monetary <= revenue_threshold) |>
+  arrange(desc(Monetary))
 
- #Visualize the Pareto distribution of top products
- dbplot_bar(top_products, x = ProductName, y = CumulativeRevenue) +
+#Visualize the Pareto distribution of top products
+dbplot_bar(top_products, x = ProductName, y = CumulativeRevenue) +
    labs(title="Top Products by Revenue", x="Product Name", y="Revenue")
+ 
+##after visualisation, recognition of pareto distribution - below are tests to confirm
 
 # 3. Empirical Verification using Pareto Principle
 cumulative_revenue <- sum(product_rfm$Monetary)
 total_revenue <- sum(product_rfm$Monetary)
-top_20_percent_products <- sum(cumulative_revenue <= 0.8 * total_revenue)
+top_20_percent_products <- sum(cumulative_revenue <= (0.8 * total_revenue))
 cat("Percentage of products contributing to 80% revenue:", (top_20_percent_products / nrow(product_rfm)) * 100, "%\n")
 
 # 4. T-test Verification
@@ -425,18 +425,18 @@ summary(fit)
 plot(fit)
 ```
 ```{r}
-transaction_ref2 |>
-  group_by(ProductName) |>
-  
+transaction_clean |>
+  group_by(ProductName)
+
 ```
 
 
-
+####seasonality analysis####
 ```{r}
 #granularity must go down to the monthly basis
 #is the diference between the number of transactions (peaks vs adj months) against time signifcant?
 
-table1 <- transaction_ref2 |> 
+table1 <- transaction_clean |> 
   mutate(month = Month(FormattedDate)) |>
   group_by(month) |>
   summarize(Number_of_transactions = n_distinct(TransactionNo)) |>
@@ -464,7 +464,7 @@ ggplot(table1, aes(x = month, y = Number_of_transactions)) +
 ##--------------------------------------------------------------------------------------------------------------
 
 #in that particular month --> what is the composition of products --> which is the top 5 and bottom 5 
-table2 <- transaction_ref2 |> 
+table2 <- transaction_clean |> 
   filter(Month(FormattedDate) == 11) |>
   group_by(ProductName, ProductNo) |>
   summarize(count = n()) |>
@@ -482,7 +482,7 @@ table2 |>
 #in those products, which is the one with the greatest increase from last month (test p-value) --> demand for speeific 
 
 #qty sold in month == 10
-table3 <- transaction_ref2 |>
+table3 <- transaction_clean |>
   filter(Month(FormattedDate) == 10) |>
   group_by(ProductName, ProductNo) |>
   summarize(count_prev_month = n()) |>
@@ -507,7 +507,7 @@ table4 |>
 #Visualize the top 5 and bottom 5 products in terms of sales volume
 ```{r}
 #group the products and sum the quantity for every product, then arrange in descending order based on quantity
-ranked_products <- transaction_ref2 |>
+ranked_products <- transaction_clean |>
   filter(Quantity >= 0 & !is.na(CustomerNo)) |>
   group_by(ProductName,ProductNo) |>
   summarise(Quantity_sold = sum(Quantity)) |>
@@ -549,7 +549,7 @@ country_to_analyse = "United Kingdom"
 ############################################################################################
 
 #This dataframe groups the data by month, product and countrry, and the values for Price is aggregated to get the Average price since one item can have multiple different prices, and quantity is aggregated with the sum function. 
-different_months <- transaction_ref2 |>
+different_months <- transaction_clean |>
   filter(ProductNo %in% products_to_analyse,
          Country == country_to_analyse) |>
   mutate(month_sold = Month(FormattedDate)) |>
