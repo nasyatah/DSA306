@@ -77,6 +77,13 @@ transaction_ref |>
   filter(Quantity < 0)
 ```
 
+```{r}
+#remove these 
+transaction_ref |>
+  filter(Quantity >10000) |>
+  collect()
+```
+
 
 ##############################################################################################################################
 2. DATA CLEANING 
@@ -127,7 +134,9 @@ transaction_ref2 <-transaction_ref2 |>
   mutate(FormattedDate = to_date(FormattedDate))
 
 transaction_ref2
+
 ```
+
 ############### CLEANED DATAFRAME 2 - transaction_ref3 ######################################################################
 This Spark dataframe has been grouped - columns are transformed so that it can be used as inputs to the ML model
 - group by CustomerNo, Country
@@ -376,29 +385,33 @@ library(dbplyr)
 library(dbplot)
 
 # 1. Feature Engineering
-transaction_ref2_spark <- transaction_ref2_spark %>%
+transaction_ref2_spark <- transaction_ref2 %>%
   mutate(Revenue = Price * Quantity)
 
 product_rfm <- transaction_ref2_spark %>%
   group_by(ProductNo, ProductName) %>%
   summarise(
-    Recency = as.numeric(difftime(max(as.Date("2019-09-12")), max(as.Date(FormattedDate, format="%Y-%m-%d")), units = "days")),
-    Frequency = n(),
+    Recency = as.numeric(datediff(to_date("2019-09-12"), max(FormattedDate))),
+    Frequency = n(), #num of transactions the product appears in
     Monetary = sum(Revenue)
   ) %>%
-  arrange(desc(Monetary), desc(Frequency), Recency)
+  arrange(desc(Monetary))
 
 # 2. Pareto Analysis
-product_rfm <- product_rfm %>%
-  mutate(CumulativeRevenue = cumsum(Monetary))
+product_rfm <- product_rfm |>
+   arrange(desc(Monetary)) |>
+   mutate(CumulativeRevenue = cumsum(Monetary)) |>
+  collect()
 
-revenue_threshold <- sum(product_rfm$Monetary) * 0.8
-top_products <- product_rfm %>%
-  filter(CumulativeRevenue <= revenue_threshold)
+ revenue_threshold <- sum(product_rfm$Monetary) * 0.8
+ 
+ top_products <- product_rfm %>%
+   filter(CumulativeRevenue <= revenue_threshold) |>
+   arrange(desc(CumulativeRevenue))
 
-# Visualize the Pareto distribution of top products
-db_plot(top_products, ProductName, Monetary) +
-  labs(title="Top Products by Revenue", x="Product Name", y="Revenue")
+ #Visualize the Pareto distribution of top products
+ dbplot_bar(top_products, x = ProductName, y = CumulativeRevenue) +
+   labs(title="Top Products by Revenue", x="Product Name", y="Revenue")
 
 # 3. Empirical Verification using Pareto Principle
 cumulative_revenue <- sum(product_rfm$Monetary)
@@ -411,6 +424,7 @@ cat("Percentage of products contributing to 80% revenue:", (top_20_percent_produ
 top_product_local <- collect(top_products)
 rest_of_product_local <- collect(product_rfm) %>% 
   filter(!ProductNo %in% top_product_local$ProductNo)
+
 t_test_result <- t.test(top_product_local$Monetary, rest_of_product_local$Monetary)
 cat("T-test results comparing top products to the rest:\n")
 print(t_test_result)
@@ -433,6 +447,13 @@ summary(fit)
 # Visualization for KS Test
 plot(fit)
 ```
+```{r}
+transaction_ref2 |>
+  group_by(ProductName) |>
+  
+```
+
+
 
 ```{r}
 #granularity must go down to the monthly basis
@@ -590,6 +611,7 @@ ggplot(different_months, aes(x = month_sold, y = Avg_Price, color = ProductName)
 
 #if price drops from our optimal basket, does it actually increase sales --> quanitiy disc
 ```
+
 
 ##############################################################################################################################
 4. MODELING IN SPARK
