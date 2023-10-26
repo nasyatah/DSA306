@@ -69,8 +69,6 @@ unique_values <- transaction_ref |>
 unique_values
 ```
 
-
-
 1.4 Checking for negative values in the Quantity column
 ```{r}
 transaction_ref |> 
@@ -101,10 +99,8 @@ This Spark dataframe has not been grouped, and only the raw data columns have be
 
 ```{r}
 transaction_ref2 <- transaction_ref |>
-  filter(!is.na(CustomerNo) & Quantity > 0 & !is.null(CustomerNo)) #|>
-  #collect()
+  filter(!is.na(CustomerNo) & Quantity > 0 & !is.null(CustomerNo))
 
-#USE TRANS DF FOR ALL FUTURE ANALYSIS??
 ```
 
 2.2 Converting date to date format
@@ -288,7 +284,6 @@ transaction_ref3_train |> plot3d( x,y,z, col = "blue", xlab = "Monetary", ylab =
 ##############################################################################################################################
 Unique_customers table
 ```{r}
-
 unique_customers <- transaction_ref2 |>
   group_by(CustomerNo, Country) |> #finds out which country is each customer from
   summarise(total_products_bought = n_distinct(ProductNo), 
@@ -296,6 +291,7 @@ unique_customers <- transaction_ref2 |>
             total_transactions = n())|>
   collect()
 
+unique_customers
 ```
 
 ```{r}
@@ -306,26 +302,6 @@ library(ggplot2)
 
 dbplot_bar(unique_customers, x = Country, Customers = n_distinct(CustomerNo))
 ```
-
-```{r}
-#grouping the data by customer id and transaction date and get the count and then see how many rows have a count >1
-
-sameday_transasctions <- transaction_ref2 |>
-  group_by(CustomerNo, FormattedDate) |>
-  summarise(total_products_bought = n_distinct(ProductNo), 
-            total_spent = sum(Price*Quantity),
-            total_transactions = n())
-
-sameday_transasctions <- sameday_transasctions |>
-  filter(total_transactions> 1)
-sameday_transasctions
-
-num_customers <- sameday_transasctions |>
-  group_by(FormattedDate) |>
-  summarise(num_of_customers = n_distinct(CustomerNo))
-num_customers |> collect()
-
-dbplot_bar(num_customers, x = FormattedDate,  y= n_distinct(CustomerNo))
 ```
 
 ```{r}
@@ -524,9 +500,6 @@ table4 <- merge(table31, table2, by= c("ProductNo","ProductName"))
 table4 |>
   mutate(change_from_prev_month = count - count_prev_month) |>
   arrange(desc(change_from_prev_month))
-
-  
-
 
 ```
 
