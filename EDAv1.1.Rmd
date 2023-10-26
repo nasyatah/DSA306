@@ -354,21 +354,21 @@ c2_europe <- mapCountryData(c2, nameColumnToPlot="Expenditure", mapRegion = "Eur
 ```
 
 ```{r}
-#product analysis by understanding the revenue contribution is pareto distributed
-
+# Load required libraries
 library(sparklyr)
 library(dbplyr)
 library(dbplot)
+library(fitdistrplus)
 
 # 1. Feature Engineering
 transaction_ref_product <- transaction_clean |>
-  mutate(Revenue = Price * Quantity) #creating revenue column
+  mutate(Revenue = Price * Quantity) # Create a 'Revenue' column
 
 product_rfm <- transaction_ref_product |>
   group_by(ProductNo, ProductName) |>
   summarise(
     Recency = as.numeric(datediff(to_date("2019-09-12"), max(FormattedDate))),
-    Frequency = n(), #num of transactions the product appears in
+    Frequency = n(), # Number of transactions the product appears in
     Monetary = sum(Revenue)
   ) |>
   arrange(desc(Monetary))
@@ -378,23 +378,23 @@ product_rfm <- product_rfm |>
    arrange(desc(Monetary)) |>
    mutate(CumulativeRevenue = cumsum(Monetary)) |> collect()
 
-revenue_threshold <- sum(product_rfm$CumulativeRevenue) * 0.8 #cutoff
+revenue_threshold <- sum(product_rfm$CumulativeRevenue) * 0.8 # Set a revenue cutoff
  
 top_products <- product_rfm |>
   filter(Monetary <= revenue_threshold) |>
   arrange(desc(Monetary))
 
-#Visualize the Pareto distribution of top products
+# Visualize the Pareto distribution of top products
 dbplot_bar(top_products, x = ProductName, y = CumulativeRevenue) +
    labs(title="Top Products by Revenue", x="Product Name", y="Revenue")
  
-##after visualisation, recognition of pareto distribution - below are tests to confirm
+## After visualization, recognition of Pareto distribution - below are tests to confirm
 
 # 3. Empirical Verification using Pareto Principle
 cumulative_revenue <- sum(product_rfm$Monetary)
 total_revenue <- sum(product_rfm$Monetary)
 top_20_percent_products <- sum(cumulative_revenue <= (0.8 * total_revenue))
-cat("Percentage of products contributing to 80% revenue:", (top_20_percent_products / nrow(product_rfm)) * 100, "%\n")
+cat("Percentage of products contributing to 80% of revenue:", (top_20_percent_products / nrow(product_rfm)) * 100, "%\n")
 
 # 4. T-test Verification
 # Note: T-test requires data collection to R as Spark doesn't natively support this test
@@ -409,7 +409,7 @@ print(t_test_result)
 # Visualization for T-test
 means <- data.frame(
   Group = c("Top Products", "Rest of the Products"),
-  Mean = c(top_product_means, rest_of_product_means)
+  Mean = c(mean(top_product_local$Monetary), mean(rest_of_product_local$Monetary))
 )
 ggplot(means, aes(x=Group, y=Mean)) +
   geom_bar(stat="identity") +
@@ -423,13 +423,11 @@ summary(fit)
 
 # Visualization for KS Test
 plot(fit)
-```
-```{r}
+
 transaction_clean |>
   group_by(ProductName)
 
 ```
-
 
 ####seasonality analysis####
 ```{r}
