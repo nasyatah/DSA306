@@ -139,7 +139,7 @@ This Spark dataframe has been grouped - columns are transformed so that it can b
 2.3 Create new columns for Recency, Frequency, Monetary values and their respective standardized values
 https://www.investopedia.com/terms/r/rfm-recency-frequency-monetary-value.asp 
 ```{r}
-transaction_ref3 <- transaction_ref2 |>
+transaction_ref_customer <- transaction_ref2 |>
   group_by(CustomerNo) |>
   summarise(
     Recency = as.numeric(datediff(max(FormattedDate), to_date("2019-12-31"))*(-1)),
@@ -148,7 +148,7 @@ transaction_ref3 <- transaction_ref2 |>
     ConcatenatedProductNames = concat_ws(", ", collect_list(ProductName))
   )
 
-transaction_ref3
+transaction_ref_customer
 
 ```
 
@@ -177,7 +177,7 @@ transaction_ref3
 #          #stdz_freqency  = (Frequency - !!rfm_stats$m_f) / !!rfm_stats$s_f,
 #          #stdz_monetary  = (Monetary - !!rfm_stats$m_m) / !!rfm_stats$s_m )  
 
-rfm_stats <- transaction_ref3 |>
+rfm_stats <- transaction_ref_customer |>
   summarize(
     r_mean = mean(Recency), 
     r_sd = sd(Recency), 
@@ -189,12 +189,12 @@ rfm_stats <- transaction_ref3 |>
 
 #rfm_stats
 
-transaction_ref3_1 <- transaction_ref3 |>
+transaction_ref_customer1 <- transaction_ref_customer |>
   mutate(R_standardized = (Recency - !!rfm_stats$r_mean) / !!rfm_stats$r_sd,
          F_standardized = (Frequency - !!rfm_stats$f_mean) / !!rfm_stats$f_sd,
          M_standardized = (Monetary - !!rfm_stats$m_mean) / !!rfm_stats$m_sd) 
 
-transaction_ref3_1 |> 
+transaction_ref_customer1 |> 
   sdf_describe(cols = c("R_standardized","F_standardized","M_standardized"))
 ```
 
@@ -204,22 +204,22 @@ transaction_ref3_1 |>
 #Frequency eda --> understand the purchasing habits (primary variable)
 
 #to regress make train and test set
-transaction_ref3_split <- transaction_ref3 |>  
+transaction_ref_customer_split <- transaction_ref_customer |>  
   sdf_random_split(training = 0.8, testing = 0.2, seed = 44)
 
-transaction_ref3_train <- transaction_ref3_split$training
-transaction_ref3_test <- transaction_ref3_split$testing
+transaction_ref_customer_split_train <- transaction_ref_customer_split$training
+transaction_ref_customer_split_test <- transaction_ref_customer_split$testing
 
-fit_1 <- transaction_ref3_train |> 
+fit_1 <- transaction_ref_customer_split_train |> 
   ml_linear_regression(formula = Monetary ~ Recency)
 
-fit_2 <- transaction_ref3_train |> 
+fit_2 <- transaction_ref_customer_split_train |> 
   ml_linear_regression(formula = Monetary ~ Frequency)
 
-fit_3 <- transaction_ref3_train |> 
+fit_3 <- transaction_ref_customer_split_train |> 
   ml_linear_regression(formula = Monetary ~ Frequency + Recency) 
 
-fit_4 <- transaction_ref3_train |> 
+fit_4 <- transaction_ref_customer_split_train |> 
   ml_linear_regression(formula = Monetary ~ Frequency + Recency + Frequency*Recency) 
 
 fit_1$summary$r2adj #0.01847029
@@ -239,7 +239,7 @@ fit_4 |> tidy()
 
 ```{r}
 # out of sample test with MSE
-pred_1 <- ml_predict(fit_3, dataset = transaction_ref3_test)
+pred_1 <- ml_predict(fit_3, dataset = transaction_ref_customer_split_test)
 MSE_1 <- ml_regression_evaluator(
 pred_1,
 label_col = "Monetary",
@@ -247,7 +247,7 @@ prediction_col = "prediction",
 metric_name = "mse"
 )
 
-pred_2 <- ml_predict(fit_4, dataset = transaction_ref3_test)
+pred_2 <- ml_predict(fit_4, dataset = transaction_ref_customer_split_test)
 MSE_2 <- ml_regression_evaluator(
 pred_2,
 label_col = "Monetary",
@@ -263,10 +263,10 @@ MSE_2
 #3D Graph
 #transaction_ref3_train
 library(rgl)
-x <- collect(transaction_ref3_train$M_standardized)
-y <- collect(transaction_ref3_train$R_standardized)
-z <- collect(transaction_ref3_train$F_standardized)
-transaction_ref3_train |> plot3d( x,y,z, col = "blue", xlab = "Monetary", ylab = "Recency", zlab = "Frequency", main = "3D Plot")
+x <- collect(transaction_ref_customer_split_train$M_standardized)
+y <- collect(transaction_ref_customer_split_train$R_standardized)
+z <- collect(transaction_ref_customer_split_train$F_standardized)
+transaction_customer_train |> plot3d( x,y,z, col = "blue", xlab = "Monetary", ylab = "Recency", zlab = "Frequency", main = "3D Plot")
 
 ```
 
@@ -293,9 +293,9 @@ library(ggplot2)
 
 dbplot_bar(unique_customers, x = Country, Customers = n_distinct(CustomerNo))
 ```
-```
 
 ```{r}
+
 customer_base <- unique_customers |> 
   group_by(Country) |>
   summarise(Customers = n_distinct(CustomerNo)) |> 
@@ -304,6 +304,7 @@ customer_base <- unique_customers |>
   collect()
 
 dbplot_bar(customer_base, x = Country, Customers) + labs(title = "Customers per country", subtitle = "Identifying countries with the largest customer base")
+
 ```
 
 ```{r}
@@ -426,7 +427,7 @@ table1 |>
 lm_fit1 <- lm(month ~ Number_of_transactions, data = table1)
 summary(lm_fit1)
 
-BIC(lm_fit)
+BIC(lm_fit1)
 
 #plot number of transactions against months
 library(ggplot2)
