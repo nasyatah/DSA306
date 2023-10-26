@@ -362,7 +362,7 @@ library(fitdistrplus)
 # 1. Feature Engineering
 
 product_rfm <- transaction_clean |>
-  mutate(Revenue = Quantity * Price) |>
+  dplyr::mutate(Revenue = Quantity * Price) |>
   group_by(ProductNo, ProductName) |>
   summarize(
     Recency = as.numeric(datediff(max(FormattedDate), to_date("2019-12-31"))*(-1)),
@@ -386,7 +386,7 @@ top_products
 
 # Visualize the Pareto distribution of top products
 dbplot_bar(top_products, x = ProductName, y = Monetary) 
- 
+
 ## After visualization, recognition of Pareto distribution - below are tests to confirm
 
 # 3. Empirical Verification using Pareto Principle
@@ -410,22 +410,23 @@ means <- data.frame(
   Group = c("Top Products", "Rest of the Products"),
   Mean = c(mean(top_product_local$Monetary), mean(rest_of_product_local$Monetary))
 )
-ggplot(means, aes(x=Group, y=Mean)) +
-  geom_bar(stat="identity") +
-  labs(title="Mean Monetary Value Comparison", x="", y="Mean Monetary Value")
+
+dbplot_bar(means, x=Group, y=Mean)
 
 # 5. Kolmogorov-Smirnov Test
-fit <- fitdist(top_products$Monetary, "pareto")
-ks_results <- gofstat(fit)
-print(ks_results$kstest)
-summary(fit)
+# Estimating parameters for Pareto distribution
+xmin <- min(product_rfm$Monetary)
+alpha <- length(product_rfm$Monetary) / sum(log(product_rfm$Monetary/xmin))
 
-# Visualization for KS Test
-plot(fit)
+# Theoretical Pareto CDF function
+ppareto <- function(q, alpha, xmin) {
+  ifelse(q >= xmin, 1 - (xmin/q)^alpha, 0)
+}
 
-transaction_clean |>
-  group_by(ProductName)
+# Perform one-sample Kolmogorov-Smirnov test
+ks_result <- ks.test(product_rfm$Monetary, ppareto, alpha, xmin)
 
+print(ks_result)
 ```
 
 ####seasonality analysis####
