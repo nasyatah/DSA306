@@ -353,6 +353,41 @@ c2_europe <- mapCountryData(c2, nameColumnToPlot="Expenditure", mapRegion = "Eur
 ```
 
 ```{r}
+#correlation matrix 
+
+library(corrr)
+
+average_spend_per_transaction <- transaction_clean |>
+  group_by(TransactionNo) |>
+  summarise(average_spend = sum(Price * Quantity) / n())
+
+average_time_between_orders <- transaction_clean |>
+  arrange(CustomerNo, FormattedDate) |>
+  group_by(CustomerNo) |>
+  summarise(average_time_between_orders = mean(diff(FormattedDate)))
+
+unique_products_bought <- transaction_clean |>
+  group_by(CustomerNo) |>
+  summarise(unique_products = n_distinct(ProductName))
+
+month_with_most_spending <- transaction_clean |>
+  mutate(month = month(FormattedDate)) |>
+  group_by(CustomerNo, month) |>
+  summarise(total_spent = sum(Price * Quantity)) |>
+  arrange(desc(total_spent)) 
+
+#put all data frames into list
+df <- list(average_spend_per_transaction, average_time_between_orders, unique_products_bought, month_with_most_spending)      
+
+#merge all data frames together
+corr_analysis <- Reduce(function(x, y) full_join(x, y, by = 'CustomerNo'), df)
+
+
+ml_corr(corr_analysis)
+
+```
+
+```{r}
 # Load required libraries
 library(sparklyr)
 library(dbplyr)
