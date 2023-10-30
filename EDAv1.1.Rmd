@@ -376,6 +376,13 @@ month_with_most_spending <- transaction_clean |>
   summarise(total_spent = sum(Price * Quantity)) |>
   arrange(desc(total_spent)) 
 
+#added an additional column for months with most # of orders
+month_with_most_orders <- transaction_clean |>
+  mutate(month = month(FormattedDate)) |>
+  group_by(month) |>
+  summarize(total_orders = n()) |>
+  arrange(desc(total_orders))
+
 #put all data frames into list
 df <- list(average_spend_per_transaction, average_time_between_orders, unique_products_bought, month_with_most_spending)      
 
