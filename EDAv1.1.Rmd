@@ -661,3 +661,30 @@ ggplot(different_months, aes(x = month_sold, y = Avg_Price, color = ProductName)
 ##############################################################################################################################
 5. SPARK ML PIPELINE
 ##############################################################################################################################
+
+```{r}
+#test
+#converting transaction_ref3 into an ML pipeline
+
+# 2.3 data cleaning converted to ML pipeline
+pipeline <- ml_pipeline(
+  ft_group_by(transaction_clean, CustomerNo),
+  ft_summarise(
+    Recency = as.numeric(datediff(max(transaction_clean$FormattedDate), to_date("2019-12-31")) * (-1)),
+    Frequency = n_distinct(transaction_clean$TransactionNo),
+    Monetary = sum(transaction_clean$Price * transaction_clean$Quantity),
+    ConcatenatedProductNames = concat_ws(", ", collect_list(transaction_clean$ProductName))
+  )
+)
+
+#Creating a model to fit pipeline into the data?
+model <- ml_fit(pipeline, transaction_clean)
+
+# Transform the data using the pipeline
+ref_customer <- ml_transform(model, transaction_clean)
+
+# Displaying the result
+sdf_register(ref_customer, "ref_customer")
+
+```
+
