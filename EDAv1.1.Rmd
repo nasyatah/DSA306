@@ -197,9 +197,25 @@ ref_customer_split_test <- ref_customer_split$testing
 
 
 ```{r}
-#regress logistic variable for duration
-fit_1 <- ref_customer_split_train |> 
-  ml_linear_regression(formula = Monetary ~ Recency)
+# LOGISTIC regress logistic variable for duration
+
+fit_logistic<- ref_customer_split_train |> 
+  ml_logistic_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized)
+
+
+fit_logistic$summary$area_under_roc() #0.9223776
+
+fit_logistic |> tidy()
+```
+
+
+```{r}
+#GLM regression
+fit_glm<- ref_customer_split_train |> 
+  ml_generalized_linear_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized, family = 'binomial')
+
+fit_glm |> tidy()
+
 ```
 
 ```{r}
