@@ -148,19 +148,19 @@ https://www.investopedia.com/terms/r/rfm-recency-frequency-monetary-value.asp
 ref_customer <- transaction_clean |>
   group_by(CustomerNo) |>
   summarise(
-    Recency = as.numeric(datediff(
-      max(FormattedDate), 
-      to_date("2019-12-31"))*(-1)),
+    Recency = as.numeric(datediff(max(FormattedDate), to_date("2019-12-31"))*(-1)),
     Frequency = n_distinct(TransactionNo),
     Monetary = sum(Price * Quantity),
     Duration = as.numeric(datediff(max(FormattedDate), min(FormattedDate))),
     ConcatenatedProductNames = concat_ws(", ", collect_list(ProductName)),
     Unique_products = n_distinct(ProductName), 
-    Avg_time_btwn_orders = (mean(as.numeric(diff(FormattedDate))))
-    ) |>
-    mutate(Avg_spend_per_transaction = Monetary/Recency)
- 
+    date_list = collect_list(FormattedDate)) |> 
+  
+    mutate(Avg_time_btwn_orders = (mean(as.numeric(diff(date_list)))), 
+    ) 
+
 ref_customer
+
 ref_customer <- ref_customer |>
   mutate(logistic_duration = ifelse(Duration > 180, 1, 0),
          Avg_spend_per_transaction = (Monetary/Recency))
@@ -191,6 +191,14 @@ month_with_most_orders <- transaction_clean |>
 ```
 
 ```{r}
+test <- ref_customer %>%
+  group_by(CustomerNo) %>%
+  summarize(date_list = collect_list(FormattedDate))
+
+```
+
+```{r}
+#ignore this 
 avg_days_per_customer <- numeric()
 
 # Get a unique list of customer numbers
