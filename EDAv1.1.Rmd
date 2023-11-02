@@ -97,7 +97,7 @@ This Spark dataframe has not been grouped, and only the raw data columns have be
 
 ```{r}
 transaction_clean <- transaction_ref |>
-  filter(!is.na(CustomerNo) & Quantity > 0 & !is.null(CustomerNo))
+  filter(!is.na(CustomerNo) & (Quantity > 0 & Quantity < 1000) & !is.null(CustomerNo))
 
 ```
 
@@ -699,6 +699,53 @@ ref_customer <- ml_transform(model, transaction_clean)
 
 # Displaying the result
 sdf_register(ref_customer, "ref_customer")
+
+```
+
+#Kmeans pipeline 
+```{r}
+#kmeans pipeline
+
+kmeans_pipeline <- ml_pipeline(sc) |>
+  ft_vector_assembler(
+    input_cols = c("Recency","Frequency","Monetary"),
+    output_col = "features"
+  ) |>
+  ft_standard_scaler(
+    input_col = "features",
+    output_col = "features_stdz",
+    with_mean = TRUE
+  ) |>
+  ml_kmeans(
+    features_col = "features_stdz",
+    prediction_col = "prediction",
+    k=4,
+    max_iter = 100,
+    init_mode = "random",
+    seed = 2001
+  ) 
+  
+fitted_model <- ml_fit(kmeans_pipeline, ref_customer)
+
+predictions <- ml_transform(fitted_model, ref_customer) |>
+  collect()
+
+#plotting the clusters
+
+#install.packages("scatterplot3d")
+library(scatterplot3d)
+
+recency <- unlist(lapply(predictions$features_stdz, function(x) x[[1]]))
+frequency <- unlist(lapply(predictions$features_stdz, function(x) x[[2]]))
+monetary <- unlist(lapply(predictions$features_stdz, function(x) x[[3]]))
+
+predictions$prediction <- as.factor(predictions$prediction)
+
+cluster_colors <- c("red", "blue", "green","yellow")
+colors <- cluster_colors[predictions$prediction]
+
+# Create the 3D scatter plot
+scatterplot3d(recency, frequency, monetary, color = colors)
 
 ```
 
