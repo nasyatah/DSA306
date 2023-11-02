@@ -148,17 +148,73 @@ https://www.investopedia.com/terms/r/rfm-recency-frequency-monetary-value.asp
 ref_customer <- transaction_clean |>
   group_by(CustomerNo) |>
   summarise(
-    Recency = as.numeric(datediff(max(FormattedDate), to_date("2019-12-31"))*(-1)),
+    Recency = as.numeric(datediff(
+      max(FormattedDate), 
+      to_date("2019-12-31"))*(-1)),
     Frequency = n_distinct(TransactionNo),
     Monetary = sum(Price * Quantity),
     Duration = as.numeric(datediff(max(FormattedDate), min(FormattedDate))),
-    ConcatenatedProductNames = concat_ws(", ", collect_list(ProductName))
-  )
-
+    ConcatenatedProductNames = concat_ws(", ", collect_list(ProductName)),
+    Unique_products = n_distinct(ProductName), 
+    Avg_time_btwn_orders = (mean(as.numeric(diff(FormattedDate))))
+    ) |>
+    mutate(Avg_spend_per_transaction = Monetary/Recency)
+ 
+ref_customer
 ref_customer <- ref_customer |>
-  mutate(logistic_duration = ifelse(Duration > 180, 1, 0))
+  mutate(logistic_duration = ifelse(Duration > 180, 1, 0),
+         Avg_spend_per_transaction = (Monetary/Recency))
 
 ref_customer
+
+"average_time_between_orders <- transaction_clean |>
+  arrange(CustomerNo, FormattedDate) |>
+  group_by(CustomerNo) |>
+  summarise(average_time_between_orders = mean(diff(FormattedDate)))
+
+unique_products_bought <- transaction_clean |>
+  group_by(CustomerNo) |>
+  summarise(unique_products = n_distinct(ProductName))
+
+month_with_most_spending <- transaction_clean |>
+  mutate(month = month(FormattedDate)) |>
+  group_by(CustomerNo, month) |>
+  summarise(total_spent = sum(Price * Quantity)) |>
+  arrange(desc(total_spent)) 
+
+#added an additional column for months with most # of orders
+month_with_most_orders <- transaction_clean |>
+  mutate(month = month(FormattedDate)) |>
+  group_by(month) |>
+  summarize(total_orders = n()) |>
+  arrange(desc(total_orders))
+```
+
+```{r}
+avg_days_per_customer <- numeric()
+
+# Get a unique list of customer numbers
+unique_customers <- unique(ref_customer$CustomerNo)
+
+# Iterate over each customer
+for (customer in unique_customers) {
+  customer_data <- df[df$CustomerNo == customer, ]
+  num_transactions <- nrow(customer_data)
+  
+  if (num_transactions > 1) {
+    transaction_dates <- as.numeric(difftime(customer_data$TransactionDate, lag(customer_data$TransactionDate)))
+    avg_days <- mean(transaction_dates, na.rm = TRUE)
+    avg_days_per_customer <- c(avg_days_per_customer, avg_days)
+  } else {
+    # If there's only one transaction, average is 0
+    avg_days_per_customer <- c(avg_days_per_customer, 0)
+  }
+}
+
+# Combine the results with customer numbers
+result <- data.frame(CustomerNo = unique_customers, AverageDays = avg_days_per_customer)
+
+print(result)
 ```
 
 
@@ -364,11 +420,18 @@ c2_europe <- mapCountryData(c2, nameColumnToPlot="Expenditure", mapRegion = "Eur
 
 library(corrr)
 
-average_spend_per_transaction <- transaction_clean |>
-  group_by(TransactionNo) |>
-  summarise(average_spend = sum(Price * Quantity) / n())
+#monetary value/freq
 
-average_time_between_orders <- transaction_clean |>
+
+corr_analysis <- ref_customer |>
+  group_by(CustomerNo) |>
+  mutate(avg_spend_per_transaction = Monetary/Recency) |> #avg spend/transaction/customerno
+  mutate(avg_time_btwn_orders = mean(diff(Duration))) |> #avg time between orders
+  mutate(month_most_spending = ) #number of unique items bought
+  
+  ml_corr(corr_analysis)
+
+"average_time_between_orders <- transaction_clean |>
   arrange(CustomerNo, FormattedDate) |>
   group_by(CustomerNo) |>
   summarise(average_time_between_orders = mean(diff(FormattedDate)))
@@ -394,7 +457,7 @@ month_with_most_orders <- transaction_clean |>
 df <- list(average_spend_per_transaction, average_time_between_orders, unique_products_bought, month_with_most_spending)      
 
 #merge all data frames together
-corr_analysis <- Reduce(function(x, y) full_join(x, y, by = 'CustomerNo'), df)
+corr_analysis <- Reduce(function(x, y) full_join(x, y, by = 'CustomerNo'), df)"
 
 
 ml_corr(corr_analysis)
