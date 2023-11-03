@@ -148,46 +148,69 @@ https://www.investopedia.com/terms/r/rfm-recency-frequency-monetary-value.asp
 ref_customer <- transaction_clean |>
   group_by(CustomerNo) |>
   summarise(
-    Recency = as.numeric(datediff(max(FormattedDate), to_date("2019-12-31"))*(-1)),
+    Recency = as.numeric(datediff(max(FormattedDate), to_date("2019-09-09"))*(-1)),
     Frequency = n_distinct(TransactionNo),
     Monetary = sum(Price * Quantity),
     Duration = as.numeric(datediff(max(FormattedDate), min(FormattedDate))),
     ConcatenatedProductNames = concat_ws(", ", collect_list(ProductName)),
-    Unique_products = n_distinct(ProductName), 
-    date_list = collect_list(FormattedDate)) |> 
-  
-    mutate(Avg_time_btwn_orders = (mean(as.numeric(diff(date_list)))), 
+    Unique_products = n_distinct(ProductName) 
     ) 
 
-ref_customer
+#create a column to identify the month where the each customer spent the most + another column which shows how much they spent during that month
+temp_df <- transaction_clean |> 
+  select(CustomerNo, FormattedDate, Price,Quantity) |>
+  mutate(total_spent = Price*Quantity) |>
+  group_by(CustomerNo, month(FormattedDate)) |>
+  summarise(total_spent_per_month = sum(total_spent)) |>
+  group_by(CustomerNo) |>
+  filter(total_spent_per_month == max(total_spent_per_month)) |>
+  group_by(CustomerNo) |>
+  mutate(rank = row_number(total_spent_per_month)) |>
+  filter(rank == 1) |>
+  select(-rank) |>
+  rename(month_with_max_spending = "month(FormattedDate)",
+         amt_spent_during_mth_w_max_spending = total_spent_per_month)
 
+#left_join the customer_ref with the month_with_max_spending column in temp_df
+ref_customer <- left_join(ref_customer, temp_df, by = "CustomerNo")
+
+#column for target variable
 ref_customer <- ref_customer |>
   mutate(logistic_duration = ifelse(Duration > 180, 1, 0),
-         Avg_spend_per_transaction = (Monetary/Recency))
+         Avg_spend_per_transaction = (Monetary/Frequency))
 
 ref_customer
 
-"average_time_between_orders <- transaction_clean |>
-  arrange(CustomerNo, FormattedDate) |>
-  group_by(CustomerNo) |>
-  summarise(average_time_between_orders = mean(diff(FormattedDate)))
+#create a df to identify month with most spending for each customer, then left join the column with ref_customer
 
-unique_products_bought <- transaction_clean |>
-  group_by(CustomerNo) |>
-  summarise(unique_products = n_distinct(ProductName))
 
-month_with_most_spending <- transaction_clean |>
-  mutate(month = month(FormattedDate)) |>
-  group_by(CustomerNo, month) |>
-  summarise(total_spent = sum(Price * Quantity)) |>
-  arrange(desc(total_spent)) 
+# "average_time_between_orders <- transaction_clean |>
+#   arrange(CustomerNo, FormattedDate) |>
+#   group_by(CustomerNo) |>
+#   summarise(average_time_between_orders = mean(diff(FormattedDate)))
+# 
+# unique_products_bought <- transaction_clean |>
+#   group_by(CustomerNo) |>
+#   summarise(unique_products = n_distinct(ProductName))
+# 
+# month_with_most_spending <- transaction_clean |>
+#   mutate(month = month(FormattedDate)) |>
+#   group_by(CustomerNo, month) |>
+#   summarise(total_spent = sum(Price * Quantity)) |>
+#   arrange(desc(total_spent)) 
+# 
+# #added an additional column for months with most # of orders
+# month_with_most_orders <- transaction_clean |>
+#   mutate(month = month(FormattedDate)) |>
+#   group_by(month) |>
+#   summarize(total_orders = n()) |>
+#   arrange(desc(total_orders))
+```
+```{r}
 
-#added an additional column for months with most # of orders
-month_with_most_orders <- transaction_clean |>
-  mutate(month = month(FormattedDate)) |>
-  group_by(month) |>
-  summarize(total_orders = n()) |>
-  arrange(desc(total_orders))
+
+
+
 ```
 
 ```{r}
