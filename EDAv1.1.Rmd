@@ -144,7 +144,7 @@ https://www.investopedia.com/terms/r/rfm-recency-frequency-monetary-value.asp
 ref_customer <- transaction_clean |>
   group_by(CustomerNo) |>
   summarise(
-    Recency = as.numeric(datediff(max(FormattedDate), to_date("2019-09-09"))*(-1)),
+    Recency = as.numeric(datediff(max(FormattedDate), to_date("2019-12-31"))*(-1)),
     Frequency = n_distinct(TransactionNo),
     Monetary = sum(Price * Quantity),
     Duration = as.numeric(datediff(max(FormattedDate), min(FormattedDate))),
@@ -166,19 +166,21 @@ temp_df <- transaction_clean |>
   filter(rank == 1) |>
   select(-rank) |>
   rename(month_with_max_spending = "month(FormattedDate)",
-         amt_spent_during_mth_w_max_spending = total_spent_per_month)
+         highest_month_spending = total_spent_per_month)
 
 #left_join the customer_ref with the month_with_max_spending column in temp_df
 ref_customer <- left_join(ref_customer, temp_df, by = "CustomerNo")
 
-#create a column for average basket size per customer
-
+#to create target variable, find the median duration
+median_duration <- ref_customer |>
+  summarize(median_duration = median(Duration)) |>
+  collect()
 
 #column for target variable
 ref_customer <- ref_customer |>
-  mutate(logistic_duration = ifelse(Duration > 180, 1, 0),
+  mutate(logistic_duration = ifelse(Duration > !!median_duration$median_duration, 1, 0),
          Avg_spend_per_transaction = (Monetary/Frequency),
-         Average_basket_size = total_qty_of_items/Frequency)
+         Average_basket_size = (total_qty_of_items/Frequency))
 
 ref_customer
 
@@ -216,14 +218,18 @@ ref_customer |>
 
 
 #plot the sample correlations
-ref_customer |> 
+corr_plot <- ref_customer |> 
+  select(-CustomerNo, -Duration) |>
   correlate(use = "pairwise.complete.obs", method = "pearson") |>
-  shave(upper = TRUE) |>
-  rplot()
+  shave(upper = TRUE) 
+
+ggplot2_plot <- rplot(corr_plot)
+
+# Modify the theme settings to adjust the x-axis labels
+ggplot2_plot + theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 ```{r}
-
 
 ```
 
@@ -636,8 +642,6 @@ table1 |>
 lm_fit1 <- lm(month ~ Number_of_transactions, data = table1)
 summary(lm_fit1)
 
-BIC(lm_fit1)
-
 #plot number of transactions against months
 library(ggplot2)
 
@@ -647,49 +651,23 @@ ggplot(table1, aes(x = month, y = Number_of_transactions)) +
   labs(x = "Month", y = "Number of Transactions") + 
   theme_minimal()
 
-##--------------------------------------------------------------------------------------------------------------
-#November has the highest number of transactions - 2753
-##--------------------------------------------------------------------------------------------------------------
+#which day of the week has the most transactions? 
+# Extract the day of the week as an integer (1 for Sunday, 2 for Monday, etc.)
+temp_df2 <- transaction_clean |>
+  mutate(day_of_week = dayofweek(FormattedDate))
 
-#in that particular month --> what is the composition of products --> which is the top 5 and bottom 5 
-table2 <- transaction_clean |> 
-  filter(Month(FormattedDate) == 11) |>
-  group_by(ProductName, ProductNo) |>
-  summarize(count = n()) |>
+temp_df2 <- temp_df2 |>
+    group_by(day_of_week) |>
+    summarise(number_of_transactions = n_distinct(TransactionNo)) |>
   collect()
 
-table2 |> 
-  arrange(desc(count))
-  
+day_names <- c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
 
-##--------------------------------------------------------------------------------------------------------------
-#Top 5 in November -> Rabbit Night Light, Paper Chain Kit 50'S Christmas, Hot Water Bottle Keep Calm, Paper Chain Kit Vintage Christmas, Jumbo Bag 50'S Christmas
-#Bottom 5 in November -> Cake Plate Lovebird White, I'm On Holiday Metal Sign, Vintage Union Jack Memoboard, Yellow Giant Garden Thermometer, Blue Happy Birthday Bunting
-##--------------------------------------------------------------------------------------------------------------
-
-#in those products, which is the one with the greatest increase from last month (test p-value) --> demand for speeific 
-
-#qty sold in month == 10
-table3 <- transaction_clean |>
-  filter(Month(FormattedDate) == 10) |>
-  group_by(ProductName, ProductNo) |>
-  summarize(count_prev_month = n()) |>
-  collect()
-
-table31 <- table3 |>
-    filter(ProductName %in% c("Rabbit Night Light", "Paper Chain Kit 50'S Christmas", "Hot Water Bottle Keep Calm", "Paper Chain Kit Vintage Christmas", "Jumbo Bag 50'S Christmas"))
-
-table2 <- table2 |>
-  filter(ProductName %in% c("Rabbit Night Light", "Paper Chain Kit 50'S Christmas", "Hot Water Bottle Keep Calm", "Paper Chain Kit Vintage Christmas", "Jumbo Bag 50'S Christmas")) |>
-  collect()
-
-#combine table 2 and 3
-table4 <- merge(table31, table2, by= c("ProductNo","ProductName"))
-
-table4 |>
-  mutate(change_from_prev_month = count - count_prev_month) |>
-  arrange(desc(change_from_prev_month))
-
+# Create a ggplot
+ggplot(temp_df2, aes(x = factor(day_of_week, levels = 1:7, labels = day_names), y = number_of_transactions)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Day of the Week", y = "Number of Transactions") +
+  scale_x_discrete(labels = day_names)
 ```
 
 #Visualize the top 5 and bottom 5 products in terms of sales volume
