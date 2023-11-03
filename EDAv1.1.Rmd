@@ -142,7 +142,7 @@ This Spark dataframe has been grouped - columns are transformed so that it can b
 - Columns: CustomerNo, Recency, Frequency, Monetary, R_standardised, F_standardised, M_standardised, [tf_idf matrix]
 ##########################################################################################################################
 
-2.3 Create new columns for Recency, Frequency, Monetary values and their respective standardized values
+2.3 Feature engineering for ref_customer
 https://www.investopedia.com/terms/r/rfm-recency-frequency-monetary-value.asp 
 ```{r}
 ref_customer <- transaction_clean |>
@@ -152,7 +152,7 @@ ref_customer <- transaction_clean |>
     Frequency = n_distinct(TransactionNo),
     Monetary = sum(Price * Quantity),
     Duration = as.numeric(datediff(max(FormattedDate), min(FormattedDate))),
-    ConcatenatedProductNames = concat_ws(", ", collect_list(ProductName)),
+    #ConcatenatedProductNames = concat_ws(", ", collect_list(ProductName)),
     Unique_products = n_distinct(ProductName) 
     ) 
 
@@ -206,11 +206,19 @@ ref_customer
 #   summarize(total_orders = n()) |>
 #   arrange(desc(total_orders))
 ```
+#Correlation analysis for ref_customer, 
 ```{r}
+#correlation matrix
+library(corrr)
+ref_customer |>
+  correlate(use = "pairwise.complete.obs", method = "pearson")
 
 
-
-
+#plot the sample correlations
+ref_customer |> 
+  correlate(use = "pairwise.complete.obs", method = "pearson") |>
+  shave(upper = TRUE) |>
+  rplot()
 ```
 
 ```{r}
