@@ -24,17 +24,13 @@ transactions_parquet <- arrow::open_dataset(
 transaction_df <- transactions_parquet |>
   dplyr::collect()
 
-```
 
-```{r}
 library(sparklyr)
 library(dplyr)
 
 # Connect to a local instance of Spark
 sc <- spark_connect(master = "local", version = "3.4.0")
-```
 
-```{r}
 # Copy the transactions R data frame to Spark memory and create the R reference transaction_ref
 transaction_ref <- copy_to(sc, transaction_df)    
 head(transaction_ref, 4)  
@@ -153,7 +149,8 @@ ref_customer <- transaction_clean |>
     Monetary = sum(Price * Quantity),
     Duration = as.numeric(datediff(max(FormattedDate), min(FormattedDate))),
     #ConcatenatedProductNames = concat_ws(", ", collect_list(ProductName)),
-    Unique_products = n_distinct(ProductName) 
+    Unique_products = n_distinct(ProductName), 
+    total_qty_of_items = sum(Quantity)
     ) 
 
 #create a column to identify the month where the each customer spent the most + another column which shows how much they spent during that month
@@ -174,10 +171,14 @@ temp_df <- transaction_clean |>
 #left_join the customer_ref with the month_with_max_spending column in temp_df
 ref_customer <- left_join(ref_customer, temp_df, by = "CustomerNo")
 
+#create a column for average basket size per customer
+
+
 #column for target variable
 ref_customer <- ref_customer |>
   mutate(logistic_duration = ifelse(Duration > 180, 1, 0),
-         Avg_spend_per_transaction = (Monetary/Frequency))
+         Avg_spend_per_transaction = (Monetary/Frequency),
+         Average_basket_size = total_qty_of_items/Frequency)
 
 ref_customer
 
@@ -220,6 +221,12 @@ ref_customer |>
   shave(upper = TRUE) |>
   rplot()
 ```
+
+```{r}
+
+
+```
+
 
 ```{r}
 test <- ref_customer %>%
