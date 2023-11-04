@@ -320,7 +320,67 @@ fit_logistic$summary$area_under_roc() #0.9223776
 
 fit_logistic |> tidy()
 ```
+```{r}
+#ML Pipeline Logistic Regression
+pipeline <- ml_pipeline(sc) |>
+  ft_vector_assembler(
+    input_cols = c("logistic_duration", "M_standardized", "F_standardized", "R_standardized"),
+    output_col = "assembler"
+  ) |>
+  ft_standard_scaler(
+    input_col = "assembler",
+    output_col = "scaler",
+    with_mean = TRUE
+  ) |>
+  ml_logistic_regression(
+    features_col = "scaler",
+    label_col = "logistic_duration"
+  )
+pipeline
 
+```
+
+```{r}
+#ML pipeline glimpse
+
+ref_customer_split_train |>
+  ft_vector_assembler( #combines multiple vectors into a single row vector
+    input_cols = c("logistic_duration", "M_standardized", "F_standardized", "R_standardized"),
+    output_col = "assembler"
+  ) |>
+  ft_standard_scaler( #standardizes numbers
+    input_col = "assembler",
+    output_col = "scaler",
+    with_mean = TRUE
+  ) |>
+  glimpse()
+
+```
+
+```{r}
+cv <- ml_cross_validator(
+  sc,
+  estimator = pipeline,
+  estimator_param_maps = list(
+    logistic_regression = list(
+      elastic_net_param = c(0.25, 0.75),
+      reg_param = c(0.001, 0.01)
+    )
+  ),
+  evaluator = ml_binary_classification_evaluator(
+    sc,
+    label_col = "logistic_duration"
+  ),
+  num_folds = 10,
+  parallelism = 4,
+  seed = 1337
+)
+
+cv_model <- ml_fit(cv, ref_customer_split_train)
+ml_validation_metrics(cv_model) |>
+  arrange(desc(areaUnderROC))
+
+```
 
 ```{r}
 #GLM regression
