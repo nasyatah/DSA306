@@ -720,19 +720,24 @@ ggplot(table1, aes(x = month, y = Number_of_transactions)) +
 # Extract the day of the week as an integer (1 for Sunday, 2 for Monday, etc.)
 temp_df2 <- transaction_clean |>
   mutate(day_of_week = dayofweek(FormattedDate))
-
+I 
 temp_df2 <- temp_df2 |>
     group_by(day_of_week) |>
     summarise(number_of_transactions = n_distinct(TransactionNo)) |>
   collect()
 
+#no transactions on tuesdays -  add a column for tuesday , where number_of_transactions = 0
+tuesday <- list(day_of_week = 3, number_of_transactions = 0)
+temp_df2 <- rbind(temp_df2, tuesday)
+
 day_names <- c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
 
 # Create a ggplot
-ggplot(temp_df2, aes(x = factor(day_of_week, levels = 1:7, labels = day_names), y = number_of_transactions)) +
-  geom_bar(stat = "identity") +
+ggplot(temp_df2, aes(x = factor(day_of_week), y = number_of_transactions)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
   labs(x = "Day of the Week", y = "Number of Transactions") +
-  scale_x_discrete(labels = day_names)
+  scale_x_discrete(labels = day_names) +
+  theme_minimal()
 ```
 
 #Visualize the top 5 and bottom 5 products in terms of sales volume
