@@ -324,7 +324,7 @@ fit_logistic |> tidy()
 #ML Pipeline Logistic Regression
 pipeline <- ml_pipeline(sc) |>
   ft_vector_assembler(
-    input_cols = c("logistic_duration", "M_standardized", "F_standardized", "R_standardized"),
+    input_cols = c("Monetary", "Frequency", "Recency"),
     output_col = "assembler"
   ) |>
   ft_standard_scaler(
@@ -345,7 +345,7 @@ pipeline
 
 ref_customer_split_train |>
   ft_vector_assembler( #combines multiple vectors into a single row vector
-    input_cols = c("logistic_duration", "M_standardized", "F_standardized", "R_standardized"),
+    input_cols = c("Monetary", "Frequency", "Recency"),
     output_col = "assembler"
   ) |>
   ft_standard_scaler( #standardizes numbers
