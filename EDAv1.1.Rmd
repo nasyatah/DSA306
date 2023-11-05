@@ -704,7 +704,7 @@ table1 <- transaction_clean |>
 table1 |>
   arrange(month)
 
-lm_fit1 <- lm(month ~ Number_of_transactions, data = table1)
+lm_fit1 <- lm(Number_of_transactions~ month, data = table1)
 summary(lm_fit1)
 
 #plot number of transactions against months
@@ -715,12 +715,14 @@ ggplot(table1, aes(x = month, y = Number_of_transactions)) +
   scale_x_continuous(breaks = 1:12, labels = month.abb[1:12]) +
   labs(x = "Month", y = "Number of Transactions") + 
   theme_minimal()
+```
 
+```{r}
 #which day of the week has the most transactions? 
 # Extract the day of the week as an integer (1 for Sunday, 2 for Monday, etc.)
 temp_df2 <- transaction_clean |>
   mutate(day_of_week = dayofweek(FormattedDate))
-I 
+
 temp_df2 <- temp_df2 |>
     group_by(day_of_week) |>
     summarise(number_of_transactions = n_distinct(TransactionNo)) |>
@@ -729,6 +731,9 @@ temp_df2 <- temp_df2 |>
 #no transactions on tuesdays -  add a column for tuesday , where number_of_transactions = 0
 tuesday <- list(day_of_week = 3, number_of_transactions = 0)
 temp_df2 <- rbind(temp_df2, tuesday)
+
+lm_fit2 <- lm(number_of_transactions ~ day_of_week, data = temp_df2)
+summary(lm_fit2)
 
 day_names <- c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
 
