@@ -275,6 +275,23 @@ fit_logistic |> tidy()
 ```
 
 ```{r}
+fit_logistic2 <- ref_customer_split_train |>
+  ml_generalized_linear_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized + Average_basket_size + Unique_products + month_with_max_spending + highest_month_spending, family = "binomial")
+
+fit_logistic2 |>
+  tidy()
+
+
+fit_logistic3 <- ref_customer_split_train |>
+  ml_logistic_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized + Average_basket_size + Unique_products + month_with_max_spending + highest_month_spending)
+
+fit_logistic3$summary$area_under_roc() #0.9409725
+
+
+```
+
+
+```{r}
 #ML Pipeline Logistic Regression
 pipeline <- ml_pipeline(sc) |>
   ft_vector_assembler(
