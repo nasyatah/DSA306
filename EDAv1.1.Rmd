@@ -184,8 +184,6 @@ ref_customer <- ref_customer |>
 
 ref_customer
 
-#create a df to identify month with most spending for each customer, then left join the column with ref_customer
-
 
 # "average_time_between_orders <- transaction_clean |>
 #   arrange(CustomerNo, FormattedDate) |>
@@ -275,6 +273,7 @@ fit_logistic$summary$area_under_roc() #0.9223776
 
 fit_logistic |> tidy()
 ```
+
 ```{r}
 #ML Pipeline Logistic Regression
 pipeline <- ml_pipeline(sc) |>
@@ -368,9 +367,49 @@ MSE_1
 MSE_2
 ```
 
+#kmeans
 ```{r}
-#kmeans pipeline
+#iterate through the different values of k 
+k_values <- c(2, 3, 4, 5, 6)
+silhouette_scores <- numeric(length(k_values))
 
+for (i in 1:length(k_values)) {
+  k <- k_values[i]
+  
+  k_means_model <- ref_customer |>
+    ml_kmeans(
+      formula = ~ R_standardized + F_standardized + M_standardized,
+      k = k, 
+      max_iter = 1000, 
+      init_mode = "random",
+      seed = 8472
+    )
+  #calculate silhouette scores
+  silhouette_scores[i] <- ml_compute_silhouette_measure(
+  k_means_model,
+  dataset = ref_customer,
+  distance_measure = "squaredEuclidean"
+)
+  
+}
+
+#find the best value of k - plot silhouette score against k 
+library(ggplot2)
+
+# Create a data frame for k values and silhouette scores
+silhouette_data <- data.frame(k = k_values, silhouette_score = silhouette_scores)
+
+silhouette_data
+
+ggplot(silhouette_data, aes(k,silhouette_score)) +
+  geom_line() +
+  theme_minimal()
+
+#as shown in the plot k = 4 is the optimal number of clusters 
+```
+
+#kmeans with optimal k, and 3d plot of the clusters 
+```{r}
 kmeans_pipeline <- ml_pipeline(sc) |>
   ft_vector_assembler(
     input_cols = c("Recency","Frequency","Monetary"),
@@ -383,20 +422,17 @@ kmeans_pipeline <- ml_pipeline(sc) |>
   ) |>
   ml_kmeans(
     features_col = "features_stdz",
-    prediction_col = "prediction",
+    prediction_col = "cluster",
     k=4,
-    max_iter = 100,
+    max_iter = 1000,
     init_mode = "random",
-    seed = 2001
+    seed = 8472
   ) 
   
 fitted_model <- ml_fit(kmeans_pipeline, ref_customer)
 
-
 predictions <- ml_transform(fitted_model, ref_customer) |>
   collect()
-
-predictions
 
 #plotting the clusters
 
@@ -407,13 +443,46 @@ recency <- unlist(lapply(predictions$features_stdz, function(x) x[[1]]))
 frequency <- unlist(lapply(predictions$features_stdz, function(x) x[[2]]))
 monetary <- unlist(lapply(predictions$features_stdz, function(x) x[[3]]))
 
-predictions$prediction <- as.factor(predictions$prediction)
+predictions$cluster <- as.factor(predictions$cluster)
 
 cluster_colors <- c("red", "blue", "green","yellow")
-colors <- cluster_colors[predictions$prediction]
+colors <- cluster_colors[predictions$cluster]
 
 # Create the 3D scatter plot
 scatterplot3d(recency, frequency, monetary, color = colors)
+
+
+```
+
+#meaning of the clusters 
+```{r}
+#Every customer is assigned to one of the 4 clusters - 0,1,2,3
+#What do these clusters mean? 
+
+#move the dataframe with all the ref_customer columns tgt with the cluster column into spark to do further analysis
+ref_prediction <- copy_to(sc, predictions, overwrite = TRUE)
+
+#group by the cluster and get the mean values of RFM 
+ref_prediction |>
+  group_by(cluster) |>
+  summarise(
+    mean_recency = mean(Recency), 
+    mean_frequency = mean(Frequency), 
+    mean_monetary = mean(Monetary)
+  ) |>
+  arrange(cluster)
+
+#cluster 0
+#Cluster 0 represents customers with moderate Recency, a moderate number of purchases, and moderate monetary value. These customers are somewhere in between the most active and least active groups.
+
+#cluster 1
+#This cluster seems to represent customers with very recent purchases (low Recency), a high number of purchases (high Frequency), and extremely high monetary value. These customers are potentially your most valuable and active customers.
+
+#cluster 2 
+#Cluster 2 represents customers with relatively recent purchases, a high number of purchases, and very high monetary value. These customers are also valuable to your business, although they might not be as active as those in Cluster 1.
+
+#cluster 3
+#Cluster 3 represents customers with higher Recency (less recent purchases), a low number of purchases (low Frequency), and low monetary value. These customers may be less engaged and less valuable to your business.
 ```
 
 ##############################################################################################################################
