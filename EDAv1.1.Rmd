@@ -489,16 +489,16 @@ ref_prediction |>
   ) |>
   arrange(cluster)
 
-#cluster 0
+#cluster 0: Green
 #Cluster 0 represents customers with moderate Recency, a moderate number of purchases, and moderate monetary value. These customers are somewhere in between the most active and least active groups.
 
-#cluster 1
+#cluster 1: Blue
 #This cluster seems to represent customers with very recent purchases (low Recency), a high number of purchases (high Frequency), and extremely high monetary value. These customers are potentially your most valuable and active customers.
 
-#cluster 2 
+#cluster 2: Yellow 
 #Cluster 2 represents customers with relatively recent purchases, a high number of purchases, and very high monetary value. These customers are also valuable to your business, although they might not be as active as those in Cluster 1.
 
-#cluster 3
+#cluster 3: Red
 #Cluster 3 represents customers with higher Recency (less recent purchases), a low number of purchases (low Frequency), and low monetary value. These customers may be less engaged and less valuable to your business.
 ```
 
