@@ -213,6 +213,7 @@ ref_customer
 ```{r}
 #correlation matrix
 library(corrr)
+library(ggplot2)
 ref_customer |>
   correlate(use = "pairwise.complete.obs", method = "pearson")
 
@@ -392,38 +393,6 @@ fit_glm |> tidy()
 ```
 
 ```{r}
-#regress monetary with receny and frequency --> any relationshisp
-#Receny --> 
-#Frequency eda --> understand the purchasing habits (primary variable)
-
-fit_1 <- ref_customer_split_train |> 
-  ml_linear_regression(formula = Monetary ~ Recency)
-
-fit_2 <- ref_customer_split_train |> 
-  ml_linear_regression(formula = Monetary ~ Frequency)
-
-fit_3 <- ref_customer_split_train |> 
-  ml_linear_regression(formula = Monetary ~ Frequency + Recency) 
-
-fit_4 <- ref_customer_split_train |> 
-  ml_linear_regression(formula = Monetary ~ Frequency + Recency + Frequency*Recency) 
-
-fit_1$summary$r2adj #0.01847029
-fit_2$summary$r2adj #0.362241
-fit_3$summary$r2adj #0.3633167
-fit_4$summary$r2adj #0.3651117
-
-#the r^2 indicates that frequncy is a much more significant predictor of monetary than recency is
-
-```
-```{r}
-fit_1 |> tidy()
-fit_2 |> tidy()
-fit_3 |> tidy()
-fit_4 |> tidy()
-```
-
-```{r}
 # out of sample test with MSE
 pred_1 <- ml_predict(fit_3, dataset = ref_customer_split_test)
 MSE_1 <- ml_regression_evaluator(
@@ -446,16 +415,48 @@ MSE_2
 ```
 
 ```{r}
-#3D Graph
-#transaction_ref3_train
-library(rgl)
-open3d()
-x <- ref_customer_split_train$M_standardized
-y <- ref_customer_split_train$R_standardized
-z <- ref_customer_split_train$F_standardized
+#kmeans pipeline
 
-# Create the 3D plot
-plot3d(x, y, z, col = "blue", xlab = "Monetary", ylab = "Recency", zlab = "Frequency", main = "3D Plot")
+kmeans_pipeline <- ml_pipeline(sc) |>
+  ft_vector_assembler(
+    input_cols = c("Recency","Frequency","Monetary"),
+    output_col = "features"
+  ) |>
+  ft_standard_scaler(
+    input_col = "features",
+    output_col = "features_stdz",
+    with_mean = TRUE
+  ) |>
+  ml_kmeans(
+    features_col = "features_stdz",
+    prediction_col = "prediction",
+    k=4,
+    max_iter = 100,
+    init_mode = "random",
+    seed = 2001
+  ) 
+  
+fitted_model <- ml_fit(kmeans_pipeline, ref_customer)
+
+predictions <- ml_transform(fitted_model, ref_customer) |>
+  collect()
+
+#plotting the clusters
+
+#install.packages("scatterplot3d")
+library(scatterplot3d)
+
+recency <- unlist(lapply(predictions$features_stdz, function(x) x[[1]]))
+frequency <- unlist(lapply(predictions$features_stdz, function(x) x[[2]]))
+monetary <- unlist(lapply(predictions$features_stdz, function(x) x[[3]]))
+
+predictions$prediction <- as.factor(predictions$prediction)
+
+cluster_colors <- c("red", "blue", "green","yellow")
+colors <- cluster_colors[predictions$prediction]
+
+# Create the 3D scatter plot
+scatterplot3d(recency, frequency, monetary, color = colors)
 ```
 
 ##############################################################################################################################
@@ -580,7 +581,7 @@ corr_analysis <- Reduce(function(x, y) full_join(x, y, by = 'CustomerNo'), df)"
 ml_corr(corr_analysis)
 
 ```
-
+PRODUCT ANALYSIS
 ```{r}
 # Load required libraries
 library(sparklyr)
@@ -911,3 +912,35 @@ scatterplot3d(recency, frequency, monetary, color = colors)
 
 ```
 
+# not in use anymore
+
+```{r}
+#regress monetary with receny and frequency --> any relationshisp
+#Receny --> 
+#Frequency eda --> understand the purchasing habits (primary variable)
+
+fit_1 <- ref_customer_split_train |> 
+  ml_linear_regression(formula = Monetary ~ Recency)
+
+fit_2 <- ref_customer_split_train |> 
+  ml_linear_regression(formula = Monetary ~ Frequency)
+
+fit_3 <- ref_customer_split_train |> 
+  ml_linear_regression(formula = Monetary ~ Frequency + Recency) 
+
+fit_4 <- ref_customer_split_train |> 
+  ml_linear_regression(formula = Monetary ~ Frequency + Recency + Frequency*Recency) 
+
+fit_1$summary$r2adj #0.01847029
+fit_2$summary$r2adj #0.362241
+fit_3$summary$r2adj #0.3633167
+fit_4$summary$r2adj #0.3651117
+
+#the r^2 indicates that frequncy is a much more significant predictor of monetary than recency is
+
+```
+```{r}
+fit_1 |> tidy()
+fit_2 |> tidy()
+fit_3 |> tidy()
+fit_4 |> tidy()
