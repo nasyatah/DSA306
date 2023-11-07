@@ -244,7 +244,6 @@ rfm_stats <- ref_customer |>
     m_sd = sd(Monetary)
   ) |> collect() #bring back to local r
 
-#rfm_stats
 
 ref_customer <- ref_customer |>
   mutate(R_standardized = (Recency - !!rfm_stats$r_mean) / !!rfm_stats$r_sd,
