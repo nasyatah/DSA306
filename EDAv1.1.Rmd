@@ -230,51 +230,6 @@ corr_plot2 <- rplot(corr_plot)
 corr_plot2 + theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
-```{r}
-#dbplot_raster
-library(dbplot)
-
-ref_customer |>
-  dbplot_raster(Recency, Frequency)
-
-```
-
-
-```{r}
-test <- ref_customer %>%
-  group_by(CustomerNo) %>%
-  summarize(date_list = collect_list(FormattedDate))
-
-```
-
-```{r}
-#ignore this 
-avg_days_per_customer <- numeric()
-
-# Get a unique list of customer numbers
-unique_customers <- unique(ref_customer$CustomerNo)
-
-# Iterate over each customer
-for (customer in unique_customers) {
-  customer_data <- df[df$CustomerNo == customer, ]
-  num_transactions <- nrow(customer_data)
-  
-  if (num_transactions > 1) {
-    transaction_dates <- as.numeric(difftime(customer_data$TransactionDate, lag(customer_data$TransactionDate)))
-    avg_days <- mean(transaction_dates, na.rm = TRUE)
-    avg_days_per_customer <- c(avg_days_per_customer, avg_days)
-  } else {
-    # If there's only one transaction, average is 0
-    avg_days_per_customer <- c(avg_days_per_customer, 0)
-  }
-}
-
-# Combine the results with customer numbers
-result <- data.frame(CustomerNo = unique_customers, AverageDays = avg_days_per_customer)
-
-print(result)
-```
-
 
 ```{r}
 #standardised values
@@ -394,18 +349,18 @@ fit_glm |> tidy()
 
 ```{r}
 # out of sample test with MSE
-pred_1 <- ml_predict(fit_3, dataset = ref_customer_split_test)
+pred_1 <- ml_predict(fit_logistic, dataset = ref_customer_split_test)
 MSE_1 <- ml_regression_evaluator(
 pred_1,
-label_col = "Monetary",
+label_col = "logistic_duration",
 prediction_col = "prediction",
 metric_name = "mse"
 )
 
-pred_2 <- ml_predict(fit_4, dataset = ref_customer_split_test)
+pred_2 <- ml_predict(fit_glm, dataset = ref_customer_split_test)
 MSE_2 <- ml_regression_evaluator(
 pred_2,
-label_col = "Monetary",
+label_col = "logistic_duration",
 prediction_col = "prediction",
 metric_name = "mse"
 )
@@ -438,8 +393,11 @@ kmeans_pipeline <- ml_pipeline(sc) |>
   
 fitted_model <- ml_fit(kmeans_pipeline, ref_customer)
 
+
 predictions <- ml_transform(fitted_model, ref_customer) |>
   collect()
+
+predictions
 
 #plotting the clusters
 
@@ -944,3 +902,49 @@ fit_1 |> tidy()
 fit_2 |> tidy()
 fit_3 |> tidy()
 fit_4 |> tidy()
+```
+
+```{r}
+#dbplot_raster
+library(dbplot)
+
+ref_customer |>
+  dbplot_raster(Recency, Frequency)
+
+```
+
+
+```{r}
+test <- ref_customer %>%
+  group_by(CustomerNo) %>%
+  summarize(date_list = collect_list(FormattedDate))
+
+```
+
+```{r}
+#ignore this 
+avg_days_per_customer <- numeric()
+
+# Get a unique list of customer numbers
+unique_customers <- unique(ref_customer$CustomerNo)
+
+# Iterate over each customer
+for (customer in unique_customers) {
+  customer_data <- df[df$CustomerNo == customer, ]
+  num_transactions <- nrow(customer_data)
+  
+  if (num_transactions > 1) {
+    transaction_dates <- as.numeric(difftime(customer_data$TransactionDate, lag(customer_data$TransactionDate)))
+    avg_days <- mean(transaction_dates, na.rm = TRUE)
+    avg_days_per_customer <- c(avg_days_per_customer, avg_days)
+  } else {
+    # If there's only one transaction, average is 0
+    avg_days_per_customer <- c(avg_days_per_customer, 0)
+  }
+}
+
+# Combine the results with customer numbers
+result <- data.frame(CustomerNo = unique_customers, AverageDays = avg_days_per_customer)
+
+print(result)
+```
