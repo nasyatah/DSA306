@@ -751,14 +751,16 @@ library(dbplyr)
 #top_products_spark <- copy_to(sc, top_products) #create a Spark Dataframe of top_products
 
 top_product_analysis <- transaction_clean |>
-    mutate(isTopProduct = ifelse(transaction_clean$ProductNo %in% top_products$ProductNo, 1, 0)) #creating a dummy variable
+    mutate(isTopProduct = ifelse(transaction_clean$ProductNo %in% top_products$ProductNo, 1, 0)) |>
+    group_by(ProductName)|>
+    dplyr::mutate(AvgTransactionQuantity = mean(Quantity))  #creating a dummy variable
 
 head(top_product_analysis)
 
 #running logistic regression on Price and Quantity
 
 top_producstc_logistic_regression <- top_products_analysis|>
-  ml_logistic_regression(formula = isTopProduct ~ Price + Quanity) |> 
+  ml_logistic_regression(formula = isTopProduct ~ Price + AverageTransactionQuanity) |> 
   tidy() 
 
 #creating training and testing set for 10-fold cross-validation
