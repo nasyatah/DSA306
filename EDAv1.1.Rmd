@@ -638,7 +638,7 @@ library(ggplot2)
 product_rfm <- transaction_clean |>
   dplyr::mutate(Revenue = Quantity * Price) |>
   group_by(ProductNo, ProductName) |>
-  summarize(
+  summarize( 
     Recency = as.numeric(datediff(max(FormattedDate), to_date("2019-12-31"))*(-1)),
     Frequency = n(),
     Monetary = sum(Revenue)
@@ -702,6 +702,9 @@ ks_result <- ks.test(product_rfm$Monetary, ppareto, alpha, xmin)
 
 print(ks_result)
 ```
+
+
+GRAPHICAL VISUALISATION
 ```{r}
 category_revenue <- transaction_clean |>
   dplyr::mutate(Revenue = Price*Quantity) |>
@@ -717,22 +720,84 @@ ggplot(category_revenue, aes(x=reorder(ProductName, -TotalRevenue), y=TotalReven
   theme(axis.text.x=element_blank())
 ```
 
-```{r}
-rfm_stats_product <- product_rfm |>
-  summarize(
-    r_mean = mean(Recency), 
-    r_sd = sd(Recency), 
-    f_mean = mean(Frequency),
-    f_sd = sd(Frequency),
-    m_mean = mean(Monetary),
-    m_sd = sd(Monetary))
 
-product_rfm_stdz <- product_rfm %>%
-  mutate(isTopProduct = ifelse(ProductNo %in% top_products$ProductNo, 1, 0)) |>
-  mutate(R_standardized = (Recency - !!rfm_stats_product$r_mean) / !!rfm_stats_product$r_sd,
-         F_standardized = (Frequency - !!rfm_stats_product$f_mean) / !!rfm_stats_product$f_sd,
-         M_standardized = (Monetary - !!rfm_stats_product$m_mean) / !!rfm_stats_product$m_sd) 
+FAILED LOGISTIC REGRESSION
+```{r}
+# rfm_stats_product <- product_rfm |>
+#   summarize(
+#     r_mean = mean(Recency), 
+#     r_sd = sd(Recency), 
+#     f_mean = mean(Frequency),
+#     f_sd = sd(Frequency),
+#     m_mean = mean(Monetary),
+#     m_sd = sd(Monetary))
+# 
+# product_rfm_stdz <- product_rfm %>%
+#   mutate(isTopProduct = ifelse(ProductNo %in% top_products$ProductNo, 1, 0)) |>
+#   mutate(R_standardized = (Recency - !!rfm_stats_product$r_mean) / !!rfm_stats_product$r_sd,
+#          F_standardized = (Frequency - !!rfm_stats_product$f_mean) / !!rfm_stats_product$f_sd,
+#          M_standardized = (Monetary - !!rfm_stats_product$m_mean) / !!rfm_stats_product$m_sd) 
 ```
+
+PRICE AND QUANTITY ANALYSIS OF TOP PPRODUCTS USING LOGISTIC REGRESSION
+
+```{r}
+
+library(dbplyr)
+#determine based on transaction factors of price and quantity that what makes a top product
+
+#creating dummy variable to segment top product and not top_product
+
+#top_products_spark <- copy_to(sc, top_products) #create a Spark Dataframe of top_products
+
+top_product_analysis <- transaction_clean |>
+    mutate(isTopProduct = ifelse(transaction_clean$ProductNo %in% top_products$ProductNo, 1, 0)) #creating a dummy variable
+
+head(top_product_analysis)
+
+#running logistic regression on Price and Quantity
+
+top_producstc_logistic_regression <- top_products_analysis|>
+  ml_logistic_regression(formula = isTopProduct ~ Price + Quanity) |> 
+  tidy() 
+
+#creating training and testing set for 10-fold cross-validation
+
+top_prosucts_analysis_split <- top_product_analysis|>
+  sdf_random_split(training = 0.8, tetsing = 0.2, seed = 123)
+
+top_product_analysis_train <- top_prosucts_analysis_split$training
+
+top_product_analysis_test <- top_prosucts_analysis_split$testing
+
+folds <- sdf_random_split(
+  top_product_analysis_train,
+  weights = setNames(rep(0.1,10), paste0("fold",1:10)),
+  seed = 123
+)
+
+#create first training and assesment set
+
+analysis_set <- do.cll("rbind", folds[2:10])
+assesment_set <- folds[[1]]
+
+#creating our trained model
+
+lr_fit <- analyis_set|>
+  ml_logistic_regression(formula = isTopProduct ~ Price + Quanity
+    formulas
+  )
+
+lr_fit
+
+#assesing out train model
+
+lr_fit_summary<- ml_evaluate(lr_fit, dataset = assesment_set)
+
+lr_fit_summary$areaunderROC
+```
+
+
 
 ####seasonality analysis####
 ```{r}
