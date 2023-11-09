@@ -103,7 +103,7 @@ library(dplyr)
 
 transaction_clean <- transaction_clean |>
     mutate(
-    month = substring_index(Date, "/", 1), #anyone else can't do substring?
+    month = substring_index(Date, "/", 1), 
     day = substring_index(substring_index(Date, "/", -2), "/", 1),
     year = substring_index(Date, "/", -1)
   ) 
@@ -576,54 +576,6 @@ c2_europe <- mapCountryData(c2, nameColumnToPlot="Expenditure", mapRegion = "Eur
 
 ```
 
-```{r}
-#correlation matrix 
-
-library(corrr)
-
-#monetary value/freq
-
-
-corr_analysis <- ref_customer |>
-  group_by(CustomerNo) |>
-  mutate(avg_spend_per_transaction = Monetary/Recency) |> #avg spend/transaction/customerno
-  mutate(avg_time_btwn_orders = mean(diff(Duration))) |> #avg time between orders
-  mutate(month_most_spending = ) #number of unique items bought
-  
-  ml_corr(corr_analysis)
-
-"average_time_between_orders <- transaction_clean |>
-  arrange(CustomerNo, FormattedDate) |>
-  group_by(CustomerNo) |>
-  summarise(average_time_between_orders = mean(diff(FormattedDate)))
-
-unique_products_bought <- transaction_clean |>
-  group_by(CustomerNo) |>
-  summarise(unique_products = n_distinct(ProductName))
-
-month_with_most_spending <- transaction_clean |>
-  mutate(month = month(FormattedDate)) |>
-  group_by(CustomerNo, month) |>
-  summarise(total_spent = sum(Price * Quantity)) |>
-  arrange(desc(total_spent)) 
-
-#added an additional column for months with most # of orders
-month_with_most_orders <- transaction_clean |>
-  mutate(month = month(FormattedDate)) |>
-  group_by(month) |>
-  summarize(total_orders = n()) |>
-  arrange(desc(total_orders))
-
-#put all data frames into list
-df <- list(average_spend_per_transaction, average_time_between_orders, unique_products_bought, month_with_most_spending)      
-
-#merge all data frames together
-corr_analysis <- Reduce(function(x, y) full_join(x, y, by = 'CustomerNo'), df)"
-
-
-ml_corr(corr_analysis)
-
-```
 PRODUCT ANALYSIS
 ```{r}
 # Load required libraries
@@ -638,12 +590,14 @@ library(ggplot2)
 product_rfm <- transaction_clean |>
   dplyr::mutate(Revenue = Quantity * Price) |>
   group_by(ProductNo, ProductName) |>
-  summarize( 
-    Recency = as.numeric(datediff(max(FormattedDate), to_date("2019-12-31"))*(-1)),
+  summarize(
+    Price = mean(Price),
     Frequency = n(),
+    AvgTransactionQuantity = mean(Quantity),
+    Recency = as.numeric(datediff(max(FormattedDate), to_date("2019-12-31"))*(-1)),
     Monetary = sum(Revenue)
   ) |>
-  arrange(desc(Monetary), desc(Frequency)) |>collect()
+  arrange(desc(Monetary), desc(Frequency)) |> collect()
 
 # 2. Pareto Analysis
 
@@ -653,7 +607,6 @@ top_products <- product_rfm |>
   mutate(CumulativeRevenue = cumsum(Monetary)) |>
   filter(CumulativeRevenue <= revenue_threshold) |> 
   arrange(desc(Monetary), desc(Frequency), Recency) 
-
 
 # Visualize the Pareto distribution of top products
 dbplot_bar(top_products, x = ProductName, y = Monetary) 
@@ -712,9 +665,18 @@ category_revenue <- transaction_clean |>
 # Plotting
 ggplot(category_revenue, aes(x=reorder(ProductName, -TotalRevenue), y=TotalRevenue)) +
   geom_bar(stat="identity", fill="skyblue") +
-  labs(title="Revenue by Product Category", x="Product Category", y="Total Revenue") +
+  labs(title="Revenue by Product", x="Product", y="Total Revenue") +
   theme_minimal() +
   theme(axis.text.x=element_blank())
+
+
+#add dummy variable
+
+product_rfm <- product_rfm|>
+  mutate(isTopProduct = if_else(ProductNo %in% top_products$ProductNo, 1, 0))
+
+product_rfm
+
 ```
 
 
@@ -743,61 +705,28 @@ PRODUCT LOGISTIC REGRESSION
 library(dbplyr)
 #determine based on transaction factors of price and quantity that what makes a top product
 
-top_products_spark <- copy_to(sc,top_products)
+product_rfm_spark <- copy_to(sc,product_rfm) 
 
-product_regression_data <- transaction_clean |>
-    group_by(ProductNo)|>
-  dplyr::summarise(
-    Price = mean(Price),
-    Frequency = n(),
-    AvgTransactionQuantity = mean(Quantity),
-    isTopProduct = ifelse(transaction_clean$ProductNo %in% top_products_spark$ProductNo, 1, 0)) 
-
-product_regression_data_renv <- product_regression_data |> collect()
-
-product_regression_data |> sdf_describe(cols = c("isTopProduct","Price","Frequency","AvgTransactionQuantity"))
+glimpse(product_rfm_spark)
 
 #running logistic regression on Price and Quantity
-top_products_logistic_regression <- product_regression_data|>
-  ml_logistic_regression(formula = isTopProduct ~ Price + AvgTransactionQuanity + Frequency)|>tidy()
+top_products_logistic_regression <- product_rfm_spark|>
+  ml_generalized_linear_regression(
+    formula = isTopProduct ~ Price + AvgTransactionQuantity + Frequency, family = "binomial") |> tidy()
 
-#creating training and testing set for 10-fold cross-validation
+#creating training and testing validation
+product_analysis_split <- product_rfm_spark|>
+  sdf_random_split(training = 0.8, testing = 0.2, seed = 123)
 
-top_prosucts_analysis_split <- regression_|>
-  sdf_random_split(training = 0.8, tetsing = 0.2, seed = 123)
+top_product_analysis_train <- product_analysis_split$training
 
-top_product_analysis_train <- top_prosucts_analysis_split$training
+top_product_analysis_test <- product_analysis_split$testing
 
-top_product_analysis_test <- top_prosucts_analysis_split$testing
+lr_fit <- top_product_analysis_train|> ml_logistic_regression(formula = isTopProduct ~ Price + AvgTransactionQuantity + Frequency)
 
-folds <- sdf_random_split(
-  top_product_analysis_train,
-  weights = setNames(rep(0.1,10), paste0("fold",1:10)),
-  seed = 123
-)
-
-#create first training and assesment set
-
-analysis_set <- do.cll("rbind", folds[2:10])
-assesment_set <- folds[[1]]
-
-#creating our trained model
-
-lr_fit <- analyis_set|>
-  ml_logistic_regression(formula = isTopProduct ~ Price + Quanity
-    formulas
-  )
-
-lr_fit
-
-#assesing out train model
-
-lr_fit_summary<- ml_evaluate(lr_fit, dataset = assesment_set)
-
-lr_fit_summary$areaunderROC
+lr_fit_summary<- ml_evaluate(lr_fit, dataset = top_product_analysis_test )
+lr_fit_summary$area_under_roc()
 ```
-
-
 
 ####seasonality analysis####
 ```{r}
@@ -1069,32 +998,4 @@ test <- ref_customer %>%
   group_by(CustomerNo) %>%
   summarize(date_list = collect_list(FormattedDate))
 
-```
-
-```{r}
-#ignore this 
-avg_days_per_customer <- numeric()
-
-# Get a unique list of customer numbers
-unique_customers <- unique(ref_customer$CustomerNo)
-
-# Iterate over each customer
-for (customer in unique_customers) {
-  customer_data <- df[df$CustomerNo == customer, ]
-  num_transactions <- nrow(customer_data)
-  
-  if (num_transactions > 1) {
-    transaction_dates <- as.numeric(difftime(customer_data$TransactionDate, lag(customer_data$TransactionDate)))
-    avg_days <- mean(transaction_dates, na.rm = TRUE)
-    avg_days_per_customer <- c(avg_days_per_customer, avg_days)
-  } else {
-    # If there's only one transaction, average is 0
-    avg_days_per_customer <- c(avg_days_per_customer, 0)
-  }
-}
-
-# Combine the results with customer numbers
-result <- data.frame(CustomerNo = unique_customers, AverageDays = avg_days_per_customer)
-
-print(result)
 ```
