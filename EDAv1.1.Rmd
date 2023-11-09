@@ -117,7 +117,7 @@ transaction_clean <- transaction_clean |>
 # Combine the formatted values to create the "yyyy/mm/dd" date
 transaction_clean <- transaction_clean |>
   mutate(FormattedDate = concat(year, "-", month, "-", day)) |>
-  select(-month, -day, -year, -Date)
+  dplyr::select(-month, -day, -year, -Date)
 
 #convert to date format from chr
 transaction_clean <-transaction_clean |>
@@ -643,9 +643,7 @@ product_rfm <- transaction_clean |>
     Frequency = n(),
     Monetary = sum(Revenue)
   ) |>
-  arrange(desc(Monetary), desc(Frequency)) |> collect()
-
-glimpse(product_rfm)
+  arrange(desc(Monetary), desc(Frequency)) |>collect()
 
 # 2. Pareto Analysis
 
@@ -654,9 +652,8 @@ revenue_threshold <- sum(product_rfm$Monetary) * 0.8
 top_products <- product_rfm |>
   mutate(CumulativeRevenue = cumsum(Monetary)) |>
   filter(CumulativeRevenue <= revenue_threshold) |> 
-  arrange(desc(Monetary), desc(Frequency), Recency) |> collect()
+  arrange(desc(Monetary), desc(Frequency), Recency) 
 
-top_products
 
 # Visualize the Pareto distribution of top products
 dbplot_bar(top_products, x = ProductName, y = Monetary) 
@@ -664,10 +661,9 @@ dbplot_bar(top_products, x = ProductName, y = Monetary)
 ## After visualization, recognition of Pareto distribution - below are tests to confirm
 
 # 3. Empirical Verification using Pareto Principle
-cumulative_revenue <- sum(product_rfm$Monetary)
-total_revenue <- sum(product_rfm$Monetary)
-top_20_percent_products <- sum(cumulative_revenue <= (0.8 * total_revenue))
-cat("Percentage of products contributing to 80% of revenue:", (top_20_percent_products / nrow(product_rfm)) * 100, "%\n")
+
+percentage_revenuethreshold <- nrow(top_products)/nrow(product_rfm)
+percentage_revenuethreshold
 
 # 4. T-test Verification
 # Note: T-test requires data collection to R as Spark doesn't natively support this test
@@ -690,7 +686,7 @@ dbplot_bar(means, x=Group, y=Mean)
 # 5. Kolmogorov-Smirnov Test
 # Estimating parameters for Pareto distribution
 xmin <- min(product_rfm$Monetary)
-alpha <- length(product_rfm$Monetary) / sum(log(product_rfm$Monetary/xmin))
+alpha <- length(product_rfm$Monetary)/sum(log(product_rfm$Monetary/xmin))
 
 # Theoretical Pareto CDF function
 ppareto <- function(q, alpha, xmin) {
@@ -701,6 +697,7 @@ ppareto <- function(q, alpha, xmin) {
 ks_result <- ks.test(product_rfm$Monetary, ppareto, alpha, xmin)
 
 print(ks_result)
+
 ```
 
 
@@ -739,33 +736,34 @@ FAILED LOGISTIC REGRESSION
 #          M_standardized = (Monetary - !!rfm_stats_product$m_mean) / !!rfm_stats_product$m_sd) 
 ```
 
-PRICE AND QUANTITY ANALYSIS OF TOP PPRODUCTS USING LOGISTIC REGRESSION
+PRODUCT LOGISTIC REGRESSION
 
 ```{r}
 
 library(dbplyr)
 #determine based on transaction factors of price and quantity that what makes a top product
 
-#creating dummy variable to segment top product and not top_product
+top_products_spark <- copy_to(sc,top_products)
 
-#top_products_spark <- copy_to(sc, top_products) #create a Spark Dataframe of top_products
+product_regression_data <- transaction_clean |>
+    group_by(ProductNo)|>
+  dplyr::summarise(
+    Price = mean(Price),
+    Frequency = n(),
+    AvgTransactionQuantity = mean(Quantity),
+    isTopProduct = ifelse(transaction_clean$ProductNo %in% top_products_spark$ProductNo, 1, 0)) 
 
-top_product_analysis <- transaction_clean |>
-    mutate(isTopProduct = ifelse(transaction_clean$ProductNo %in% top_products$ProductNo, 1, 0)) |>
-    group_by(ProductName)|>
-    dplyr::mutate(AvgTransactionQuantity = mean(Quantity))  #creating a dummy variable
+product_regression_data_renv <- product_regression_data |> collect()
 
-head(top_product_analysis)
+product_regression_data |> sdf_describe(cols = c("isTopProduct","Price","Frequency","AvgTransactionQuantity"))
 
 #running logistic regression on Price and Quantity
-
-top_producstc_logistic_regression <- top_products_analysis|>
-  ml_logistic_regression(formula = isTopProduct ~ Price + AverageTransactionQuanity) |> 
-  tidy() 
+top_products_logistic_regression <- product_regression_data|>
+  ml_logistic_regression(formula = isTopProduct ~ Price + AvgTransactionQuanity + Frequency)|>tidy()
 
 #creating training and testing set for 10-fold cross-validation
 
-top_prosucts_analysis_split <- top_product_analysis|>
+top_prosucts_analysis_split <- regression_|>
   sdf_random_split(training = 0.8, tetsing = 0.2, seed = 123)
 
 top_product_analysis_train <- top_prosucts_analysis_split$training
