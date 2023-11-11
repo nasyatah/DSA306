@@ -77,6 +77,7 @@ transaction_ref |>
 ```
 
 
+
 ##############################################################################################################################
 2. DATA CLEANING 
 ##############################################################################################################################
@@ -93,7 +94,7 @@ This Spark dataframe has not been grouped, and only the raw data columns have be
 
 ```{r}
 transaction_clean <- transaction_ref |>
-  filter(!is.na(CustomerNo) & (Quantity > 0 & Quantity < 1000) & !is.null(CustomerNo))
+  filter(!is.na(CustomerNo) & (Quantity > 0 & Quantity < 10000) & !is.null(CustomerNo))
 
 ```
 
@@ -125,6 +126,18 @@ transaction_clean <-transaction_clean |>
 
 transaction_clean
 ```
+#Looking at the range of dates 
+```{r}
+date_summary <- transaction_clean |>
+  summarize(
+    min_date = min(FormattedDate),
+    max_date = max(FormattedDate)
+  ) |>
+  collect()
+
+date_summary
+
+```
 
 ############### CLEANED DATAFRAME 2 - transaction_ref3 ######################################################################
 This Spark dataframe has been grouped - columns are transformed so that it can be used as inputs to the ML model
@@ -144,11 +157,10 @@ https://www.investopedia.com/terms/r/rfm-recency-frequency-monetary-value.asp
 ref_customer <- transaction_clean |>
   group_by(CustomerNo) |>
   summarise(
-    Recency = as.numeric(datediff(max(FormattedDate), to_date("2019-12-31"))*(-1)),
+    Recency = as.numeric(datediff(to_date("2019-12-09"), max(FormattedDate))),
     Frequency = n_distinct(TransactionNo),
     Monetary = sum(Price * Quantity),
     Duration = as.numeric(datediff(max(FormattedDate), min(FormattedDate))),
-    #ConcatenatedProductNames = concat_ws(", ", collect_list(ProductName)),
     Unique_products = n_distinct(ProductName), 
     total_qty_of_items = sum(Quantity)
     ) 
@@ -183,29 +195,6 @@ ref_customer <- ref_customer |>
          Average_basket_size = (total_qty_of_items/Frequency))
 
 ref_customer
-
-
-# "average_time_between_orders <- transaction_clean |>
-#   arrange(CustomerNo, FormattedDate) |>
-#   group_by(CustomerNo) |>
-#   summarise(average_time_between_orders = mean(diff(FormattedDate)))
-# 
-# unique_products_bought <- transaction_clean |>
-#   group_by(CustomerNo) |>
-#   summarise(unique_products = n_distinct(ProductName))
-# 
-# month_with_most_spending <- transaction_clean |>
-#   mutate(month = month(FormattedDate)) |>
-#   group_by(CustomerNo, month) |>
-#   summarise(total_spent = sum(Price * Quantity)) |>
-#   arrange(desc(total_spent)) 
-# 
-# #added an additional column for months with most # of orders
-# month_with_most_orders <- transaction_clean |>
-#   mutate(month = month(FormattedDate)) |>
-#   group_by(month) |>
-#   summarize(total_orders = n()) |>
-#   arrange(desc(total_orders))
 ```
 #Correlation analysis for ref_customer, 
 ```{r}
