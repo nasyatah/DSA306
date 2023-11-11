@@ -208,13 +208,13 @@ ref_customer
 library(corrr)
 library(ggplot2)
 ref_customer |>
-  select(-CustomerNo, -Duration, -month_with_max_spending) |>
+  select(-CustomerNo, -Duration, -month_with_max_spending, -highest_month_spending, -logistic_duration, -total_qty_of_items) |>
   correlate(use = "pairwise.complete.obs", method = "pearson")
 
 
 #plot the sample correlations
 corr_plot <- ref_customer |> 
-  select(-CustomerNo, -Duration, -month_with_max_spending) |>
+  select(-CustomerNo, -Duration, -month_with_max_spending, -highest_month_spending, -logistic_duration, -total_qty_of_items) |>
   correlate(use = "pairwise.complete.obs", method = "pearson") |>
   shave(upper = TRUE) 
 
@@ -262,7 +262,7 @@ ref_customer_split_test <- ref_customer_split$testing
 ```{r}
 tidy_glm_fit <- ref_customer_split_train |>
   ml_generalized_linear_regression(
-    formula = logistic_duration ~ R_standardized + F_standardized + M_standardized + Average_basket_size + Unique_products + highest_month_spending + month_with_max_spending, family = "binomial"
+    formula = logistic_duration ~ Recency + Frequency + Monetary + Average_basket_size + Unique_products + highest_month_spending + month_with_max_spending, family = "binomial"
   ) |>
   tidy() |>
   collect()
@@ -307,15 +307,17 @@ fit_logistic |> tidy()
 ```
 
 ```{r}
+#month with max spending - change to festive or not festive 
+#average basket size eda
 fit_logistic2 <- ref_customer_split_train |>
-  ml_generalized_linear_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized + Average_basket_size + Unique_products + month_with_max_spending + highest_month_spending, family = "binomial")
+  ml_generalized_linear_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized + Avg_spend_per_transaction + Unique_products + month_with_max_spending, family = "binomial")
 
 fit_logistic2 |>
   tidy()
 
 
 fit_logistic3 <- ref_customer_split_train |>
-  ml_logistic_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized + Average_basket_size + Unique_products + month_with_max_spending + highest_month_spending)
+  ml_logistic_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized + Average_basket_size + Unique_products + month_with_max_spending)
 
 fit_logistic3$summary$area_under_roc() #0.9409725
 
