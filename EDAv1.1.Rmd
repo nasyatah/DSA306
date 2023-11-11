@@ -183,6 +183,10 @@ temp_df <- transaction_clean |>
 #left_join the customer_ref with the month_with_max_spending column in temp_df
 ref_customer <- left_join(ref_customer, temp_df, by = "CustomerNo")
 
+#make month with max spending a categorical variable
+ref_customer <- ref_customer |>
+  mutate(month_with_max_spending = as.character(month_with_max_spending))
+
 #to create target variable, find the median duration
 median_duration <- ref_customer |>
   summarize(median_duration = median(Duration)) |>
@@ -196,18 +200,21 @@ ref_customer <- ref_customer |>
 
 ref_customer
 ```
-#Correlation analysis for ref_customer, 
+
+
+#Correlation analysis for ref_customer
 ```{r}
 #correlation matrix
 library(corrr)
 library(ggplot2)
 ref_customer |>
+  select(-CustomerNo, -Duration, -month_with_max_spending) |>
   correlate(use = "pairwise.complete.obs", method = "pearson")
 
 
 #plot the sample correlations
 corr_plot <- ref_customer |> 
-  select(-CustomerNo, -Duration) |>
+  select(-CustomerNo, -Duration, -month_with_max_spending) |>
   correlate(use = "pairwise.complete.obs", method = "pearson") |>
   shave(upper = TRUE) 
 
@@ -217,7 +224,7 @@ corr_plot2 <- rplot(corr_plot)
 corr_plot2 + theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
-
+#standardising rfm values 
 ```{r}
 #standardised values
 
@@ -241,6 +248,7 @@ ref_customer |>
   sdf_describe(cols = c("R_standardized","F_standardized","M_standardized"))
 ```
 
+
 ```{r}
 #to regress make train and test set
 ref_customer_split <- ref_customer |>  
@@ -249,6 +257,41 @@ ref_customer_split <- ref_customer |>
 ref_customer_split_train <- ref_customer_split$training
 ref_customer_split_test <- ref_customer_split$testing
 ```
+
+#Confidence Interval for the features
+```{r}
+tidy_glm_fit <- ref_customer_split_train |>
+  ml_generalized_linear_regression(
+    formula = logistic_duration ~ R_standardized + F_standardized + M_standardized + Average_basket_size + Unique_products + highest_month_spending + month_with_max_spending, family = "binomial"
+  ) |>
+  tidy() |>
+  collect()
+
+
+```
+
+#PLotting the CI
+```{r}
+library(ggplot2)
+
+tidy_glm_fit |>
+  ggplot(aes(x = term, y = estimate)) +
+  geom_point(size = 0.5) + 
+  geom_errorbar(
+    aes(ymin = estimate - 1.96*std.error, ymax = estimate + 1.96*std.error),
+    width = 0.1
+  ) + 
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  coord_flip()+
+  labs(
+    title = "Confidence Intervals", 
+    subtitle = "Parameter estimates with approximate 95% confidence intervals"
+  )
+
+
+```
+
+
 
 
 ```{r}
