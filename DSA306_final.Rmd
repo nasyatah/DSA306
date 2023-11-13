@@ -317,13 +317,13 @@ ref_customer
 library(corrr)
 library(ggplot2)
 ref_customer |>
-  select(-CustomerNo, -Duration, -month_with_max_spending, -logistic_duration) |>
+  select(-CustomerNo, -Duration, -festive_spender, -logistic_duration) |>
   correlate(use = "pairwise.complete.obs", method = "pearson")
 
 
 #plot the sample correlations
 corr_plot <- ref_customer |> 
-  select(-CustomerNo, -Duration, -month_with_max_spending, -highest_month_spending, -logistic_duration, -total_qty_of_items) |>
+  select(-CustomerNo, -Duration, -festive_spender, -logistic_duration) |>
   correlate(use = "pairwise.complete.obs", method = "pearson") |>
   shave(upper = TRUE) 
 
@@ -334,20 +334,64 @@ corr_plot2 + theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 ```
 
-5.1.2 Splitting into training and testing set
+
+5.1.2 Standardisation of variables
 ```{r}
+#standardised values
+
+rfm_stats <- ref_customer |>
+  summarize(
+    r_mean = mean(Recency), 
+    r_sd = sd(Recency), 
+    f_mean = mean(Frequency),
+    f_sd = sd(Frequency),
+    m_mean = mean(Monetary),
+    m_sd = sd(Monetary)
+  ) |> collect() #bring back to local r
+
+
+ref_customer <- ref_customer |>
+  mutate(R_standardized = (Recency - !!rfm_stats$r_mean) / !!rfm_stats$r_sd,
+         F_standardized = (Frequency - !!rfm_stats$f_mean) / !!rfm_stats$f_sd,
+         M_standardized = (Monetary - !!rfm_stats$m_mean) / !!rfm_stats$m_sd) 
+
+ref_customer |>
+  sdf_describe(cols = c("R_standardized","F_standardized","M_standardized"))
 
 ```
 
-5.1.3 Standardisation of variables
+5.1.3 Splitting into training and testing set
 ```{r}
+ref_customer_split <- ref_customer |>  
+  sdf_random_split(training = 0.8, testing = 0.2, seed = 44)
 
+ref_customer_split_train <- ref_customer_split$training
+ref_customer_split_test <- ref_customer_split$testing
 
+ref_customer_split_train
 ```
 
 5.1.4 Evaluating the models
 ```{r}
 
+fit_logistic1<- ref_customer_split_train |> 
+  ml_logistic_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized)
+
+
+fit_logistic1$summary$area_under_roc() 
+fit_logistic1 |> tidy()
+
+fit_logistic2 <- ref_customer_split_train |>
+  ml_generalized_linear_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized + Average_basket_size + Unique_products + festive_spender, family = "binomial")
+
+fit_logistic2 |>
+  tidy()
+
+
+fit_logistic3 <- ref_customer_split_train |>
+  ml_logistic_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized + Average_basket_size + Unique_products + festive_spender)
+
+fit_logistic3$summary$area_under_roc() #0.9409725
 
 
 ```
@@ -358,7 +402,45 @@ corr_plot2 + theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ##------------------------
 ```{r}
 
+#ML Pipeline Logistic Regression
+pipeline <- ml_pipeline(sc) |>
+  ft_vector_assembler(
+    input_cols = c("Monetary", "Frequency", "Recency"),
+    output_col = "assembler"
+  ) |>
+  ft_standard_scaler(
+    input_col = "assembler",
+    output_col = "scaler",
+    with_mean = TRUE
+  ) |>
+  ml_logistic_regression(
+    features_col = "scaler",
+    label_col = "logistic_duration"
+  )
+pipeline
 
+#cross-validation with elastic net
+cv <- ml_cross_validator(
+  sc,
+  estimator = pipeline,
+  estimator_param_maps = list(
+    logistic_regression = list(
+      elastic_net_param = c(0.25, 0.75),
+      reg_param = c(0, 0.001, 0.01)
+    )
+  ),
+  evaluator = ml_binary_classification_evaluator(
+    sc,
+    label_col = "logistic_duration"
+  ),
+  num_folds = 10,
+  parallelism = 4,
+  seed = 1337
+)
+
+cv_model <- ml_fit(cv, ref_customer_split_train)
+ml_validation_metrics(cv_model) |>
+  arrange(desc(areaUnderROC))
 ```
 
 

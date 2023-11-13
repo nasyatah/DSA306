@@ -1,13 +1,13 @@
 ----------------------------------------------------------------
-Sat Nov 11 20:33:25 SGT 2023:
-Booting Derby version The Apache Software Foundation - Apache Derby - 10.14.2.0 - (1828579): instance a816c00e-018b-be5f-66ff-000002f8de28 
-on database directory memory:/Users/nasyatah./Documents/GitHub/DSA306/databaseName=metastore_db with class loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27 
-Loaded from file:/Users/nasyatah./spark/spark-3.4.0-bin-hadoop3/jars/derby-10.14.2.0.jar
+Mon Nov 13 14:36:16 SGT 2023:
+Booting Derby version The Apache Software Foundation - Apache Derby - 10.14.2.0 - (1828579): instance a816c00e-018b-c765-252a-0000018ab9d8 
+on database directory memory:C:\Users\priya\Downloads\DSA306\databaseName=metastore_db with class loader jdk.internal.loader.ClassLoaders$AppClassLoader@73d16e93 
+Loaded from file:/C:/Users/priya/AppData/Local/spark/spark-3.4.0-bin-hadoop3/jars/derby-10.14.2.0.jar
 java.vendor=Amazon.com Inc.
 java.runtime.version=17.0.8.1+8-LTS
-user.dir=/Users/nasyatah./Documents/GitHub/DSA306
-os.name=Mac OS X
-os.arch=aarch64
-os.version=13.2
+user.dir=C:\Users\priya\Downloads\DSA306
+os.name=Windows 10
+os.arch=amd64
+os.version=10.0
 derby.system.home=null
 Database Class Loader started - derby.database.classpath=''
