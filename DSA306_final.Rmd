@@ -396,6 +396,38 @@ fit_logistic3$summary$area_under_roc() #0.9409725
 
 ```
 
+5.1.5 Out-of-sample testing
+```{r}
+# out of sample test with MSE
+pred_1 <- ml_predict(fit_logistic1, dataset = ref_customer_split_test)
+MSE_1 <- ml_regression_evaluator(
+pred_1,
+label_col = "logistic_duration",
+prediction_col = "prediction",
+metric_name = "mse"
+)
+
+pred_2 <- ml_predict(fit_logistic2, dataset = ref_customer_split_test)
+MSE_2 <- ml_regression_evaluator(
+pred_2,
+label_col = "logistic_duration",
+prediction_col = "prediction",
+metric_name = "mse"
+)
+
+pred_3 <- ml_predict(fit_logistic3, dataset = ref_customer_split_test)
+MSE_3<- ml_regression_evaluator(
+pred_3,
+label_col = "logistic_duration",
+prediction_col = "prediction",
+metric_name = "mse"
+)
+
+MSE_1
+MSE_2
+MSE_3
+```
+
 
 ##------------------------
 #SECTION 5.2: ML Pipeline - Logistic Regression
