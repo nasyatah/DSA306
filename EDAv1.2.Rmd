@@ -1,0 +1,1006 @@
+---
+title: "EDAv1.0"
+output: html_document
+date: "2023-09-21"
+---
+
+```{r}
+# OPEN CSV FILE HERE
+# transactions <- arrow::open_dataset(sources = "transactions.csv", format = "csv")
+# SAVE DATASET IN PARQUET FORMAT HERE
+# Create AAPL directory
+# dir.create("parquet_folder")  
+# write parquet file to directory
+# arrow::write_dataset(transactions,format = "parquet", path = "parquet_folder",partitioning = NULL)
+```
+
+```{r}
+#OPEN SAVED PARQUET FILE HERE
+transactions_parquet <- arrow::open_dataset(
+  sources = "parquet_folder/part-0.parquet",
+  format = "parquet")
+
+# Collect the data into a data frame
+transaction_df <- transactions_parquet |>
+  dplyr::collect()
+
+
+library(sparklyr)
+library(dplyr)
+
+# Connect to a local instance of Spark
+sc <- spark_connect(master = "local", version = "3.4.0")
+
+# Copy the transactions R data frame to Spark memory and create the R reference transaction_ref
+transaction_ref <- copy_to(sc, transaction_df)    
+head(transaction_ref, 4)  
+```
+
+##############################################################################################################################
+1. DATA CHECKING
+##############################################################################################################################
+
+1.1 Generating summary statistics for every column - applicable to numerical variables
+```{r}
+#summary statistics for every column
+sdf_describe(transaction_ref, cols = colnames(transaction_ref)) 
+```
+
+1.2 Checking for null values in every column
+```{r}
+#check the number of na values present in every column 
+na_values <- transaction_ref |>
+  summarise_all(~sum(as.integer(is.na(.))))
+na_values
+```
+
+1.3 Checking for unique values in different columns 
+```{r}
+#check for unique values, can modify parameter in select() to check for unique values in other columns 
+unique_values <- transaction_ref |>
+  select(ProductName) |>
+  distinct()
+
+unique_values
+```
+
+1.4 Checking for negative values in the Quantity column
+```{r}
+transaction_ref |> 
+  filter(Quantity < 0)
+```
+
+```{r}
+#remove these 
+transaction_ref |>
+  filter(Quantity >10000) 
+```
+
+
+##############################################################################################################################
+2. DATA CLEANING 
+##############################################################################################################################
+
+############### CLEANED DATAFRAME 1 - transaction_ref2 ######################################################################
+This Spark dataframe has not been grouped, and only the raw data columns have been cleaned, can be used for EDA, data viz
+- date column converted to date
+- quantity < 0 dropped
+- Customer No with NA dropped 
+- Columns: TransactionNo, ProductNo, ProductName, Price, Quantity, CustomerNo, Country, FormattedDate
+##########################################################################################################################
+
+2.1 removing rows with NA CustomerNo, and rows with negative quantity
+
+```{r}
+transaction_clean <- transaction_ref |>
+  filter(!is.na(CustomerNo) & (Quantity > 0 & Quantity < 1000) & !is.null(CustomerNo))
+
+```
+
+2.2 Converting date to date format
+```{r}
+library(dplyr)
+
+transaction_clean <- transaction_clean |>
+    mutate(
+    month = substring_index(Date, "/", 1), 
+    day = substring_index(substring_index(Date, "/", -2), "/", 1),
+    year = substring_index(Date, "/", -1)
+  ) 
+# Add leading zeros to month and day
+transaction_clean <- transaction_clean |>
+  mutate(
+    month = lpad(month, 2, "0"),
+    day = lpad(day, 2, "0")
+  )
+
+# Combine the formatted values to create the "yyyy/mm/dd" date
+transaction_clean <- transaction_clean |>
+  mutate(FormattedDate = concat(year, "-", month, "-", day)) |>
+  dplyr::select(-month, -day, -year, -Date)
+
+#convert to date format from chr
+transaction_clean <-transaction_clean |>
+  mutate(FormattedDate = to_date(FormattedDate))
+
+transaction_clean
+```
+
+############### CLEANED DATAFRAME 2 - transaction_ref3 ######################################################################
+This Spark dataframe has been grouped - columns are transformed so that it can be used as inputs to the ML model
+- group by CustomerNo, Country
+- Create Recency column: How many days ago was their last purchase relative to 2019-12-31
+- Create Frequency Column: Count the rows of distinct TransactionNo per customer
+- Create Monetary Column: Total amount spent per customer in all their transactions with the business
+- ProductName: Concatenate the values from each row per customer, represent it as a tf-idf matrix where each cell contain the TF-IDF value for a specific term in a specific document. (not done yet)
+- Apply z standardization for the RFM columns (not done yet)
+
+- Columns: CustomerNo, Recency, Frequency, Monetary, R_standardised, F_standardised, M_standardised, [tf_idf matrix]
+##########################################################################################################################
+
+2.3 Feature engineering for ref_customer
+https://www.investopedia.com/terms/r/rfm-recency-frequency-monetary-value.asp 
+```{r}
+ref_customer <- transaction_clean |>
+  group_by(CustomerNo) |>
+  summarise(
+    Recency = as.numeric(datediff(max(FormattedDate), to_date("2019-12-31"))*(-1)),
+    Frequency = n_distinct(TransactionNo),
+    Monetary = sum(Price * Quantity),
+    Duration = as.numeric(datediff(max(FormattedDate), min(FormattedDate))),
+    #ConcatenatedProductNames = concat_ws(", ", collect_list(ProductName)),
+    Unique_products = n_distinct(ProductName), 
+    total_qty_of_items = sum(Quantity)
+    ) 
+
+#create a column to identify the month where the each customer spent the most + another column which shows how much they spent during that month
+temp_df <- transaction_clean |> 
+  select(CustomerNo, FormattedDate, Price,Quantity) |>
+  mutate(total_spent = Price*Quantity) |>
+  group_by(CustomerNo, month(FormattedDate)) |>
+  summarise(total_spent_per_month = sum(total_spent)) |>
+  group_by(CustomerNo) |>
+  filter(total_spent_per_month == max(total_spent_per_month)) |>
+  group_by(CustomerNo) |>
+  mutate(rank = row_number(total_spent_per_month)) |>
+  filter(rank == 1) |>
+  select(-rank) |>
+  rename(month_with_max_spending = "month(FormattedDate)",
+         highest_month_spending = total_spent_per_month)
+
+#left_join the customer_ref with the month_with_max_spending column in temp_df
+ref_customer <- left_join(ref_customer, temp_df, by = "CustomerNo")
+
+#to create target variable, find the median duration
+median_duration <- ref_customer |>
+  summarize(median_duration = median(Duration)) |>
+  collect()
+
+#column for target variable
+ref_customer <- ref_customer |>
+  mutate(logistic_duration = ifelse(Duration > !!median_duration$median_duration, 1, 0),
+         Avg_spend_per_transaction = (Monetary/Frequency),
+         Average_basket_size = (total_qty_of_items/Frequency))
+
+ref_customer
+
+
+# "average_time_between_orders <- transaction_clean |>
+#   arrange(CustomerNo, FormattedDate) |>
+#   group_by(CustomerNo) |>
+#   summarise(average_time_between_orders = mean(diff(FormattedDate)))
+# 
+# unique_products_bought <- transaction_clean |>
+#   group_by(CustomerNo) |>
+#   summarise(unique_products = n_distinct(ProductName))
+# 
+# month_with_most_spending <- transaction_clean |>
+#   mutate(month = month(FormattedDate)) |>
+#   group_by(CustomerNo, month) |>
+#   summarise(total_spent = sum(Price * Quantity)) |>
+#   arrange(desc(total_spent)) 
+# 
+# #added an additional column for months with most # of orders
+# month_with_most_orders <- transaction_clean |>
+#   mutate(month = month(FormattedDate)) |>
+#   group_by(month) |>
+#   summarize(total_orders = n()) |>
+#   arrange(desc(total_orders))
+```
+#Correlation analysis for ref_customer, 
+```{r}
+#correlation matrix
+library(corrr)
+library(ggplot2)
+ref_customer |>
+  correlate(use = "pairwise.complete.obs", method = "pearson")
+
+
+#plot the sample correlations
+corr_plot <- ref_customer |> 
+  select(-CustomerNo, -Duration) |>
+  correlate(use = "pairwise.complete.obs", method = "pearson") |>
+  shave(upper = TRUE) 
+
+corr_plot2 <- rplot(corr_plot)
+
+# Modify the theme settings to adjust the x-axis labels
+corr_plot2 + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+```{r}
+#standardised values
+
+rfm_stats <- ref_customer |>
+  summarize(
+    r_mean = mean(Recency), 
+    r_sd = sd(Recency), 
+    f_mean = mean(Frequency),
+    f_sd = sd(Frequency),
+    m_mean = mean(Monetary),
+    m_sd = sd(Monetary)
+  ) |> collect() #bring back to local r
+
+
+ref_customer <- ref_customer |>
+  mutate(R_standardized = (Recency - !!rfm_stats$r_mean) / !!rfm_stats$r_sd,
+         F_standardized = (Frequency - !!rfm_stats$f_mean) / !!rfm_stats$f_sd,
+         M_standardized = (Monetary - !!rfm_stats$m_mean) / !!rfm_stats$m_sd) 
+
+ref_customer |>
+  sdf_describe(cols = c("R_standardized","F_standardized","M_standardized"))
+```
+
+```{r}
+#to regress make train and test set
+ref_customer_split <- ref_customer |>  
+  sdf_random_split(training = 0.8, testing = 0.2, seed = 44)
+
+ref_customer_split_train <- ref_customer_split$training
+ref_customer_split_test <- ref_customer_split$testing
+```
+
+
+```{r}
+# LOGISTIC regress logistic variable for duration
+
+fit_logistic<- ref_customer_split_train |> 
+  ml_logistic_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized)
+
+
+fit_logistic$summary$area_under_roc() #0.9223776
+
+fit_logistic |> tidy()
+```
+
+```{r}
+fit_logistic2 <- ref_customer_split_train |>
+  ml_generalized_linear_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized + Average_basket_size + Unique_products + month_with_max_spending + highest_month_spending, family = "binomial")
+
+fit_logistic2 |>
+  tidy()
+
+
+fit_logistic3 <- ref_customer_split_train |>
+  ml_logistic_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized + Average_basket_size + Unique_products + month_with_max_spending + highest_month_spending)
+
+fit_logistic3$summary$area_under_roc() #0.9409725
+
+
+```
+
+
+```{r}
+#ML Pipeline Logistic Regression
+pipeline <- ml_pipeline(sc) |>
+  ft_vector_assembler(
+    input_cols = c("Monetary", "Frequency", "Recency"),
+    output_col = "assembler"
+  ) |>
+  ft_standard_scaler(
+    input_col = "assembler",
+    output_col = "scaler",
+    with_mean = TRUE
+  ) |>
+  ml_logistic_regression(
+    features_col = "scaler",
+    label_col = "logistic_duration"
+  )
+pipeline
+
+```
+
+```{r}
+#ML pipeline glimpse
+
+ref_customer_split_train |>
+  ft_vector_assembler( #combines multiple vectors into a single row vector
+    input_cols = c("Monetary", "Frequency", "Recency"),
+    output_col = "assembler"
+  ) |>
+  ft_standard_scaler( #standardizes numbers
+    input_col = "assembler",
+    output_col = "scaler",
+    with_mean = TRUE
+  ) |>
+  glimpse()
+
+```
+
+```{r}
+cv <- ml_cross_validator(
+  sc,
+  estimator = pipeline,
+  estimator_param_maps = list(
+    logistic_regression = list(
+      elastic_net_param = c(0.25, 0.75),
+      reg_param = c(0.001, 0.01)
+    )
+  ),
+  evaluator = ml_binary_classification_evaluator(
+    sc,
+    label_col = "logistic_duration"
+  ),
+  num_folds = 10,
+  parallelism = 4,
+  seed = 1337
+)
+
+cv_model <- ml_fit(cv, ref_customer_split_train)
+ml_validation_metrics(cv_model) |>
+  arrange(desc(areaUnderROC))
+
+```
+
+```{r}
+#GLM regression
+fit_glm<- ref_customer_split_train |> 
+  ml_generalized_linear_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized, family = 'binomial')
+
+fit_glm |> tidy()
+
+```
+
+```{r}
+# out of sample test with MSE
+pred_1 <- ml_predict(fit_logistic, dataset = ref_customer_split_test)
+MSE_1 <- ml_regression_evaluator(
+pred_1,
+label_col = "logistic_duration",
+prediction_col = "prediction",
+metric_name = "mse"
+)
+
+pred_2 <- ml_predict(fit_glm, dataset = ref_customer_split_test)
+MSE_2 <- ml_regression_evaluator(
+pred_2,
+label_col = "logistic_duration",
+prediction_col = "prediction",
+metric_name = "mse"
+)
+
+MSE_1
+MSE_2
+```
+
+#kmeans
+```{r}
+#iterate through the different values of k 
+k_values <- c(2, 3, 4, 5, 6)
+silhouette_scores <- numeric(length(k_values))
+
+for (i in 1:length(k_values)) {
+  k <- k_values[i]
+  
+  k_means_model <- ref_customer |>
+    ml_kmeans(
+      formula = ~ R_standardized + F_standardized + M_standardized,
+      k = k, 
+      max_iter = 1000, 
+      init_mode = "random",
+      seed = 8472
+    )
+  #calculate silhouette scores
+  silhouette_scores[i] <- ml_compute_silhouette_measure(
+  k_means_model,
+  dataset = ref_customer,
+  distance_measure = "squaredEuclidean"
+)
+  
+}
+
+#find the best value of k - plot silhouette score against k 
+library(ggplot2)
+
+# Create a data frame for k values and silhouette scores
+silhouette_data <- data.frame(k = k_values, silhouette_score = silhouette_scores)
+
+silhouette_data
+
+ggplot(silhouette_data, aes(k,silhouette_score)) +
+  geom_line() +
+  theme_minimal()
+
+#as shown in the plot k = 4 is the optimal number of clusters 
+```
+
+#kmeans with optimal k, and 3d plot of the clusters 
+```{r}
+kmeans_pipeline <- ml_pipeline(sc) |>
+  ft_vector_assembler(
+    input_cols = c("Recency","Frequency","Monetary"),
+    output_col = "features"
+  ) |>
+  ft_standard_scaler(
+    input_col = "features",
+    output_col = "features_stdz",
+    with_mean = TRUE
+  ) |>
+  ml_kmeans(
+    features_col = "features_stdz",
+    prediction_col = "cluster",
+    k=4,
+    max_iter = 1000,
+    init_mode = "random",
+    seed = 8472
+  ) 
+  
+fitted_model <- ml_fit(kmeans_pipeline, ref_customer)
+
+predictions <- ml_transform(fitted_model, ref_customer) |>
+  collect()
+
+#plotting the clusters
+
+#install.packages("scatterplot3d")
+library(scatterplot3d)
+
+recency <- unlist(lapply(predictions$features_stdz, function(x) x[[1]]))
+frequency <- unlist(lapply(predictions$features_stdz, function(x) x[[2]]))
+monetary <- unlist(lapply(predictions$features_stdz, function(x) x[[3]]))
+
+predictions$cluster <- as.factor(predictions$cluster)
+
+cluster_colors <- c("red", "blue", "green","yellow")
+colors <- cluster_colors[predictions$cluster]
+
+# Create the 3D scatter plot
+scatterplot3d(recency, frequency, monetary, color = colors)
+
+
+```
+
+#meaning of the clusters 
+```{r}
+#Every customer is assigned to one of the 4 clusters - 0,1,2,3
+#What do these clusters mean? 
+
+#move the dataframe with all the ref_customer columns tgt with the cluster column into spark to do further analysis
+ref_prediction <- copy_to(sc, predictions, overwrite = TRUE)
+
+#group by the cluster and get the mean values of RFM 
+ref_prediction |>
+  group_by(cluster) |>
+  summarise(
+    mean_recency = mean(Recency), 
+    mean_frequency = mean(Frequency), 
+    mean_monetary = mean(Monetary)
+  ) |>
+  arrange(cluster)
+
+#cluster 0: Green
+#Cluster 0 represents customers with moderate Recency, a moderate number of purchases, and moderate monetary value. These customers are somewhere in between the most active and least active groups.
+
+#cluster 1: Blue
+#This cluster seems to represent customers with very recent purchases (low Recency), a high number of purchases (high Frequency), and extremely high monetary value. These customers are potentially your most valuable and active customers.
+
+#cluster 2: Yellow 
+#Cluster 2 represents customers with relatively recent purchases, a high number of purchases, and very high monetary value. These customers are also valuable to your business, although they might not be as active as those in Cluster 1.
+
+#cluster 3: Red
+#Cluster 3 represents customers with higher Recency (less recent purchases), a low number of purchases (low Frequency), and low monetary value. These customers may be less engaged and less valuable to your business.
+```
+
+##############################################################################################################################
+3. EDA AND DATA VISUALIZATION
+##############################################################################################################################
+Unique_customers table
+```{r}
+unique_customers <- transaction_clean |>
+  group_by(CustomerNo, Country) |> #finds out which country is each customer from
+  summarise(total_products_bought = n_distinct(ProductNo), 
+            total_spent = sum(Price*Quantity),
+            total_transactions = n())|>
+  collect()
+
+unique_customers
+```
+
+```{r}
+#countries with the most customers 
+library(dbplot)
+library(ggplot2)
+
+
+dbplot_bar(unique_customers, x = Country, Customers = n_distinct(CustomerNo))
+```
+
+```{r}
+customer_base <- unique_customers |> 
+  group_by(Country) |>
+  summarise(Customers = n_distinct(CustomerNo)) |> 
+  na.omit(customer_base) |>
+  filter(Customers > 20) |> #tryna cut down the data base, filtering out countries with "too low" customer bases
+  collect()
+
+dbplot_bar(customer_base, x = Country, Customers) + labs(title = "Customers per country", subtitle = "Identifying countries with the largest customer base")
+
+```
+
+```{r}
+#country by customerbase (number of customers)
+#same graph as above, but with map (think this is better cos i didnt omit data)
+
+library(rworldmap)
+
+customer_base1 <- unique_customers |> 
+  group_by(Country) |>
+  summarise(Customers = n_distinct(CustomerNo)) |> 
+  na.omit(customer_base) |>
+  collect()
+
+c1 <- joinCountryData2Map(customer_base1, joinCode="NAME", nameJoinColumn="Country")
+mapCountryData(c1, nameColumnToPlot="Customers", catMethod="logFixedWidth", colourPalette = "heat", addLegend = TRUE, mapTitle = "Customerbase per country")
+
+#zoom zoom
+map_region <- "Europe"
+c1_europe <- mapCountryData(c1, nameColumnToPlot="Customers", mapRegion = "Europe", addLegend=FALSE, mapTitle = "Customers in Europe Region")
+
+#from this we can see that idk i think its france/germany that has a high customer data base im bad at geography
+
+```
+
+```{r}
+#country by expenditure 
+
+customerbase2 <- unique_customers |> 
+  group_by(Country) |> 
+  summarise(Expenditure = sum(total_spent)) |> 
+  collect()
+
+c2 <- joinCountryData2Map(customerbase2, joinCode="NAME", nameJoinColumn="Country")
+mapCountryData(c2, nameColumnToPlot="Expenditure", catMethod="fixedWidth", colourPalette = "heat", addLegend = TRUE, mapTitle = "Expenditure per country")
+
+c2_europe <- mapCountryData(c2, nameColumnToPlot="Expenditure", mapRegion = "Europe", addLegend=FALSE, mapTitle = "Expenditure in Europe Region")
+
+```
+
+PRODUCT ANALYSIS
+```{r}
+# Load required libraries
+library(sparklyr)
+library(dbplyr)
+library(dbplot)
+library(fitdistrplus)
+library(ggplot2)
+
+# 1. Feature Engineering
+
+product_rfm <- transaction_clean |>
+  dplyr::mutate(Revenue = Quantity * Price) |>
+  group_by(ProductNo, ProductName) |>
+  summarize(
+    Price = mean(Price),
+    Frequency = n(),
+    AvgTransactionQuantity = mean(Quantity),
+    Recency = as.numeric(datediff(max(FormattedDate), to_date("2019-12-31"))*(-1)),
+    Monetary = sum(Revenue)
+  ) |>
+  arrange(desc(Monetary), desc(Frequency)) |> collect()
+
+glimpse(product_rfm)
+
+# 2. Pareto Analysis
+
+revenue_threshold <- sum(product_rfm$Monetary) * 0.8
+
+top_products <- product_rfm |>
+  mutate(CumulativeRevenue = cumsum(Monetary)) |>
+  filter(CumulativeRevenue <= revenue_threshold) |> 
+  arrange(desc(Monetary), desc(Frequency), Recency) 
+
+# Visualize the Pareto distribution of top products
+dbplot_bar(top_products, x = ProductName, y = Monetary) 
+
+## After visualization, recognition of Pareto distribution - below are tests to confirm
+
+# 3. Empirical Verification using Pareto Principle
+
+percentage_revenuethreshold <- nrow(top_products)/nrow(product_rfm)
+percentage_revenuethreshold
+
+# 4. T-test Verification
+# Note: T-test requires data collection to R as Spark doesn't natively support this test
+top_product_local <- collect(top_products)
+rest_of_product_local <- collect(product_rfm) %>% 
+  filter(!ProductNo %in% top_product_local$ProductNo)
+
+t_test_result <- t.test(top_product_local$Monetary, rest_of_product_local$Monetary)
+cat("T-test results comparing top products to the rest:\n")
+print(t_test_result)
+
+# Visualization for T-test
+means <- data.frame(
+  Group = c("Top Products", "Rest of the Products"),
+  Mean = c(mean(top_product_local$Monetary), mean(rest_of_product_local$Monetary))
+)
+
+dbplot_bar(means, x=Group, y=Mean)
+
+# 5. Kolmogorov-Smirnov Test
+# Estimating parameters for Pareto distribution
+xmin <- min(product_rfm$Monetary)
+alpha <- length(product_rfm$Monetary)/sum(log(product_rfm$Monetary/xmin))
+
+# Theoretical Pareto CDF function
+ppareto <- function(q, alpha, xmin) {
+  ifelse(q >= xmin, 1 - (xmin/q)^alpha, 0)
+}
+
+# Perform one-sample Kolmogorov-Smirnov test
+ks_result <- ks.test(product_rfm$Monetary, ppareto, alpha, xmin)
+
+print(ks_result)
+
+```
+
+
+GRAPHICAL VISUALISATION
+```{r}
+category_revenue <- transaction_clean |>
+  dplyr::mutate(Revenue = Price*Quantity) |>
+  dplyr::group_by(ProductName) |>
+  dplyr::summarize(TotalRevenue = sum(Revenue)) |>
+  dplyr::arrange(desc(TotalRevenue))
+
+# Plotting
+ggplot(category_revenue, aes(x=reorder(ProductName, -TotalRevenue), y=TotalRevenue)) +
+  geom_bar(stat="identity", fill="skyblue") +
+  labs(title="Revenue by Product", x="Product", y="Total Revenue") +
+  theme_minimal() +
+  theme(axis.text.x=element_blank())
+
+
+#add dummy variable
+
+product_rfm <- product_rfm|>
+  mutate(isTopProduct = if_else(ProductNo %in% top_products$ProductNo, 1, 0)) 
+
+product_rfm
+
+```
+
+
+FAILED LOGISTIC REGRESSION
+```{r}
+# rfm_stats_product <- product_rfm |>
+#   summarize(
+#     r_mean = mean(Recency), 
+#     r_sd = sd(Recency), 
+#     f_mean = mean(Frequency),
+#     f_sd = sd(Frequency),
+#     m_mean = mean(Monetary),
+#     m_sd = sd(Monetary))
+# 
+# product_rfm_stdz <- product_rfm %>%
+#   mutate(isTopProduct = ifelse(ProductNo %in% top_products$ProductNo, 1, 0)) |>
+#   mutate(R_standardized = (Recency - !!rfm_stats_product$r_mean) / !!rfm_stats_product$r_sd,
+#          F_standardized = (Frequency - !!rfm_stats_product$f_mean) / !!rfm_stats_product$f_sd,
+#          M_standardized = (Monetary - !!rfm_stats_product$m_mean) / !!rfm_stats_product$m_sd) 
+```
+
+PRODUCT LOGISTIC REGRESSION
+
+```{r}
+
+library(dbplyr)
+#determine based on transaction factors of price and quantity that what makes a top product
+
+product_rfm_spark <- copy_to(sc,product_rfm)
+
+product_rfm_spark <- product_rfm_spark |>
+  dplyr::mutate(isTopProduct = if_else(ProductNo %in% !!top_products$ProductNo, 1, 0))
+
+glimpse(product_rfm_spark)
+
+#running logistic regression on Price and Quantity
+top_products_logistic_regression <- product_rfm_spark|>
+  ml_generalized_linear_regression(
+    formula = isTopProduct ~ Price + AvgTransactionQuantity + Frequency, family = "binomial") |> tidy()
+
+#creating training and testing validation
+product_analysis_split <- product_rfm_spark|>
+  sdf_random_split(training = 0.8, testing = 0.2, seed = 123)
+
+top_product_analysis_train <- product_analysis_split$training
+
+top_product_analysis_test <- product_analysis_split$testing
+
+lr_fit <- top_product_analysis_train|> ml_logistic_regression(formula = isTopProduct ~ Price + AvgTransactionQuantity + Frequency)
+
+lr_fit_summary<- ml_evaluate(lr_fit, dataset = top_product_analysis_test )
+lr_fit_summary$area_under_roc()
+```
+
+####seasonality analysis####
+```{r}
+#granularity must go down to the monthly basis
+#is the diference between the number of transactions (peaks vs adj months) against time signifcant?
+
+table1 <- transaction_clean |> 
+  mutate(month = Month(FormattedDate)) |>
+  group_by(month) |>
+  summarize(Number_of_transactions = n_distinct(TransactionNo)) |>
+  collect()
+
+table1 |>
+  arrange(month)
+
+lm_fit1 <- lm(Number_of_transactions~ month, data = table1)
+summary(lm_fit1)
+
+#plot number of transactions against months
+library(ggplot2)
+
+ggplot(table1, aes(x = month, y = Number_of_transactions)) +
+  geom_line() + 
+  scale_x_continuous(breaks = 1:12, labels = month.abb[1:12]) +
+  labs(x = "Month", y = "Number of Transactions") + 
+  theme_minimal()
+```
+
+```{r}
+#which day of the week has the most transactions? 
+# Extract the day of the week as an integer (1 for Sunday, 2 for Monday, etc.)
+temp_df2 <- transaction_clean |>
+  mutate(day_of_week = dayofweek(FormattedDate))
+
+temp_df2 <- temp_df2 |>
+    group_by(day_of_week) |>
+    summarise(number_of_transactions = n_distinct(TransactionNo)) |>
+  collect()
+
+#no transactions on tuesdays -  add a column for tuesday , where number_of_transactions = 0
+tuesday <- list(day_of_week = 3, number_of_transactions = 0)
+temp_df2 <- rbind(temp_df2, tuesday)
+
+lm_fit2 <- lm(number_of_transactions ~ day_of_week, data = temp_df2)
+summary(lm_fit2)
+
+day_names <- c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
+
+# Create a ggplot
+ggplot(temp_df2, aes(x = factor(day_of_week), y = number_of_transactions)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(x = "Day of the Week", y = "Number of Transactions") +
+  scale_x_discrete(labels = day_names) +
+  theme_minimal()
+```
+
+#Visualize the top 5 and bottom 5 products in terms of sales volume
+```{r}
+#group the products and sum the quantity for every product, then arrange in descending order based on quantity
+ranked_products <- transaction_clean |>
+  filter(Quantity >= 0 & !is.na(CustomerNo)) |>
+  group_by(ProductName,ProductNo) |>
+  summarise(Quantity_sold = sum(Quantity)) |>
+  arrange(desc(Quantity_sold)) |>
+  collect()
+
+#choose the top 5 rows
+top_5_products <- head(ranked_products,5)
+#choose the bottom 5 rows
+bottom_5_products <- tail(ranked_products, 5)
+
+top_5_products
+bottom_5_products
+
+#visualise top 5
+ggplot(top_5_products, aes(x = reorder(ProductName, -Quantity_sold), y = Quantity_sold)) +
+  geom_bar(stat = "identity", fill = "green") +
+  coord_flip() +  # Make it a horizontal bar chart
+  labs(x = "Product Name", y = "Total Quantity Sold") +
+  ggtitle("Top 5 Products by Total Quantity Sold") + 
+  theme_minimal()
+
+#visualise bottom 5
+ggplot(bottom_5_products, aes(x = reorder(ProductName, -Quantity_sold), y = Quantity_sold)) +
+  geom_bar(stat = "identity", fill = "red") +
+  coord_flip() +  # Make it a horizontal bar chart
+  labs(x = "Product Name", y = "Total Quantity Sold") +
+  ggtitle("Bottom 5 Products by Total Quantity Sold") + 
+  theme_minimal()
+
+```
+
+#Quantity sold of the top 5 products throughout the year - checking for seasonality 
+```{r}
+############################################################################################
+#can change this based on which products/countries we wanna analyse
+products_to_analyse = c("22197","84077","85099B","84879","21212")
+country_to_analyse = "United Kingdom"
+############################################################################################
+
+#This dataframe groups the data by month, product and countrry, and the values for Price is aggregated to get the Average price since one item can have multiple different prices, and quantity is aggregated with the sum function. 
+different_months <- transaction_clean |>
+  filter(ProductNo %in% products_to_analyse,
+         Country == country_to_analyse) |>
+  mutate(month_sold = Month(FormattedDate)) |>
+  group_by(ProductNo, ProductName, Country, month_sold) |> 
+  summarise(Quantity = sum(Quantity),
+            Avg_Price = mean(Price)) |>
+  collect()
+
+#View the collected Spark dataframe
+different_months 
+
+#Visualising the quantity sold every month for the top 5 products
+ggplot(different_months, aes(x = month_sold, y = Quantity, color = ProductName)) +
+  geom_line() +
+  scale_x_continuous(breaks = 1:12, labels = month.abb[1:12]) +  # Set numeric months and labels
+  labs(x = "Month", y = "Quantity Sold") +
+  ggtitle("Quantity Sold per Month for Selected Products") +
+  theme(legend.position = "top") + 
+  theme_minimal()
+
+#Visualising the change in average prices of the products every month
+ggplot(different_months, aes(x = month_sold, y = Avg_Price, color = ProductName)) +
+  geom_line() +
+  scale_x_continuous(breaks = 1:12, labels = month.abb[1:12]) +  # Set numeric months and labels
+  labs(x = "Month", y = "Average Price") +
+  ggtitle("Average Price per Month for Selected Products") +
+  theme(legend.position = "top") + 
+  theme_minimal()
+
+###INSIGHTS####
+#Prices for most products dip in October which is also when there is a spike in Quantity of products sold. However some #products such as World War 2 Gliders Asstd Designs see a drop in sales in October even with a drop in price. This data can be #used to assist managers in their pricing strategies for the various products. 
+
+
+#if price drops from our optimal basket, does it actually increase sales --> quanitiy disc
+```
+
+
+##############################################################################################################################
+4. MODELING IN SPARK
+##############################################################################################################################
+
+
+
+##############################################################################################################################
+5. SPARK ML PIPELINE
+##############################################################################################################################
+
+```{r}
+#test
+#converting transaction_ref3 into an ML pipeline
+
+# 2.3 data cleaning converted to ML pipeline
+pipeline <- ml_pipeline(
+  ft_group_by(transaction_clean, CustomerNo),
+  ft_summarise(
+    Recency = as.numeric(datediff(max(transaction_clean$FormattedDate), to_date("2019-12-31")) * (-1)),
+    Frequency = n_distinct(transaction_clean$TransactionNo),
+    Monetary = sum(transaction_clean$Price * transaction_clean$Quantity),
+    ConcatenatedProductNames = concat_ws(", ", collect_list(transaction_clean$ProductName))
+  )
+)
+
+#Creating a model to fit pipeline into the data?
+model <- ml_fit(pipeline, transaction_clean)
+
+# Transform the data using the pipeline
+ref_customer <- ml_transform(model, transaction_clean)
+
+# Displaying the result
+sdf_register(ref_customer, "ref_customer")
+
+```
+
+#Kmeans pipeline 
+```{r}
+#kmeans pipeline
+
+kmeans_pipeline <- ml_pipeline(sc) |>
+  ft_vector_assembler(
+    input_cols = c("Recency","Frequency","Monetary"),
+    output_col = "features"
+  ) |>
+  ft_standard_scaler(
+    input_col = "features",
+    output_col = "features_stdz",
+    with_mean = TRUE
+  ) |>
+  ml_kmeans(
+    features_col = "features_stdz",
+    prediction_col = "prediction",
+    k=4,
+    max_iter = 100,
+    init_mode = "random",
+    seed = 2001
+  ) 
+  
+fitted_model <- ml_fit(kmeans_pipeline, ref_customer)
+
+predictions <- ml_transform(fitted_model, ref_customer) |>
+  collect()
+
+#plotting the clusters
+
+#install.packages("scatterplot3d")
+library(scatterplot3d)
+
+recency <- unlist(lapply(predictions$features_stdz, function(x) x[[1]]))
+frequency <- unlist(lapply(predictions$features_stdz, function(x) x[[2]]))
+monetary <- unlist(lapply(predictions$features_stdz, function(x) x[[3]]))
+
+predictions$prediction <- as.factor(predictions$prediction)
+
+cluster_colors <- c("red", "blue", "green","yellow")
+colors <- cluster_colors[predictions$prediction]
+
+# Create the 3D scatter plot
+scatterplot3d(recency, frequency, monetary, color = colors)
+
+```
+
+# not in use anymore
+
+```{r}
+#regress monetary with receny and frequency --> any relationshisp
+#Receny --> 
+#Frequency eda --> understand the purchasing habits (primary variable)
+
+fit_1 <- ref_customer_split_train |> 
+  ml_linear_regression(formula = Monetary ~ Recency)
+
+fit_2 <- ref_customer_split_train |> 
+  ml_linear_regression(formula = Monetary ~ Frequency)
+
+fit_3 <- ref_customer_split_train |> 
+  ml_linear_regression(formula = Monetary ~ Frequency + Recency) 
+
+fit_4 <- ref_customer_split_train |> 
+  ml_linear_regression(formula = Monetary ~ Frequency + Recency + Frequency*Recency) 
+
+fit_1$summary$r2adj #0.01847029
+fit_2$summary$r2adj #0.362241
+fit_3$summary$r2adj #0.3633167
+fit_4$summary$r2adj #0.3651117
+
+#the r^2 indicates that frequncy is a much more significant predictor of monetary than recency is
+
+```
+```{r}
+fit_1 |> tidy()
+fit_2 |> tidy()
+fit_3 |> tidy()
+fit_4 |> tidy()
+```
+
+```{r}
+#dbplot_raster
+library(dbplot)
+
+ref_customer |>
+  dbplot_raster(Recency, Frequency)
+
+```
+
+
+```{r}
+test <- ref_customer %>%
+  group_by(CustomerNo) %>%
+  summarize(date_list = collect_list(FormattedDate))
+
+```

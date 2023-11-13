@@ -77,6 +77,7 @@ transaction_ref |>
 ```
 
 
+
 ##############################################################################################################################
 2. DATA CLEANING 
 ##############################################################################################################################
@@ -93,7 +94,7 @@ This Spark dataframe has not been grouped, and only the raw data columns have be
 
 ```{r}
 transaction_clean <- transaction_ref |>
-  filter(!is.na(CustomerNo) & (Quantity > 0 & Quantity < 1000) & !is.null(CustomerNo))
+  filter(!is.na(CustomerNo) & (Quantity > 0 & Quantity < 10000) & !is.null(CustomerNo))
 
 ```
 
@@ -103,7 +104,7 @@ library(dplyr)
 
 transaction_clean <- transaction_clean |>
     mutate(
-    month = substring_index(Date, "/", 1), #anyone else can't do substring?
+    month = substring_index(Date, "/", 1), 
     day = substring_index(substring_index(Date, "/", -2), "/", 1),
     year = substring_index(Date, "/", -1)
   ) 
@@ -117,13 +118,25 @@ transaction_clean <- transaction_clean |>
 # Combine the formatted values to create the "yyyy/mm/dd" date
 transaction_clean <- transaction_clean |>
   mutate(FormattedDate = concat(year, "-", month, "-", day)) |>
-  select(-month, -day, -year, -Date)
+  dplyr::select(-month, -day, -year, -Date)
 
 #convert to date format from chr
 transaction_clean <-transaction_clean |>
   mutate(FormattedDate = to_date(FormattedDate))
 
 transaction_clean
+```
+#Looking at the range of dates 
+```{r}
+date_summary <- transaction_clean |>
+  summarize(
+    min_date = min(FormattedDate),
+    max_date = max(FormattedDate)
+  ) |>
+  collect()
+
+date_summary
+
 ```
 
 ############### CLEANED DATAFRAME 2 - transaction_ref3 ######################################################################
@@ -144,11 +157,10 @@ https://www.investopedia.com/terms/r/rfm-recency-frequency-monetary-value.asp
 ref_customer <- transaction_clean |>
   group_by(CustomerNo) |>
   summarise(
-    Recency = as.numeric(datediff(max(FormattedDate), to_date("2019-12-31"))*(-1)),
+    Recency = as.numeric(datediff(to_date("2019-12-09"), max(FormattedDate))),
     Frequency = n_distinct(TransactionNo),
     Monetary = sum(Price * Quantity),
     Duration = as.numeric(datediff(max(FormattedDate), min(FormattedDate))),
-    #ConcatenatedProductNames = concat_ws(", ", collect_list(ProductName)),
     Unique_products = n_distinct(ProductName), 
     total_qty_of_items = sum(Quantity)
     ) 
@@ -171,6 +183,10 @@ temp_df <- transaction_clean |>
 #left_join the customer_ref with the month_with_max_spending column in temp_df
 ref_customer <- left_join(ref_customer, temp_df, by = "CustomerNo")
 
+#make month with max spending a categorical variable
+ref_customer <- ref_customer |>
+  mutate(month_with_max_spending = as.character(month_with_max_spending))
+
 #to create target variable, find the median duration
 median_duration <- ref_customer |>
   summarize(median_duration = median(Duration)) |>
@@ -183,42 +199,22 @@ ref_customer <- ref_customer |>
          Average_basket_size = (total_qty_of_items/Frequency))
 
 ref_customer
-
-
-# "average_time_between_orders <- transaction_clean |>
-#   arrange(CustomerNo, FormattedDate) |>
-#   group_by(CustomerNo) |>
-#   summarise(average_time_between_orders = mean(diff(FormattedDate)))
-# 
-# unique_products_bought <- transaction_clean |>
-#   group_by(CustomerNo) |>
-#   summarise(unique_products = n_distinct(ProductName))
-# 
-# month_with_most_spending <- transaction_clean |>
-#   mutate(month = month(FormattedDate)) |>
-#   group_by(CustomerNo, month) |>
-#   summarise(total_spent = sum(Price * Quantity)) |>
-#   arrange(desc(total_spent)) 
-# 
-# #added an additional column for months with most # of orders
-# month_with_most_orders <- transaction_clean |>
-#   mutate(month = month(FormattedDate)) |>
-#   group_by(month) |>
-#   summarize(total_orders = n()) |>
-#   arrange(desc(total_orders))
 ```
-#Correlation analysis for ref_customer, 
+
+
+#Correlation analysis for ref_customer
 ```{r}
 #correlation matrix
 library(corrr)
 library(ggplot2)
 ref_customer |>
+  select(-CustomerNo, -Duration, -month_with_max_spending, -highest_month_spending, -logistic_duration, -total_qty_of_items) |>
   correlate(use = "pairwise.complete.obs", method = "pearson")
 
 
 #plot the sample correlations
 corr_plot <- ref_customer |> 
-  select(-CustomerNo, -Duration) |>
+  select(-CustomerNo, -Duration, -month_with_max_spending, -highest_month_spending, -logistic_duration, -total_qty_of_items) |>
   correlate(use = "pairwise.complete.obs", method = "pearson") |>
   shave(upper = TRUE) 
 
@@ -228,7 +224,7 @@ corr_plot2 <- rplot(corr_plot)
 corr_plot2 + theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
-
+#standardising rfm values 
 ```{r}
 #standardised values
 
@@ -252,6 +248,7 @@ ref_customer |>
   sdf_describe(cols = c("R_standardized","F_standardized","M_standardized"))
 ```
 
+
 ```{r}
 #to regress make train and test set
 ref_customer_split <- ref_customer |>  
@@ -260,6 +257,41 @@ ref_customer_split <- ref_customer |>
 ref_customer_split_train <- ref_customer_split$training
 ref_customer_split_test <- ref_customer_split$testing
 ```
+
+#Confidence Interval for the features
+```{r}
+tidy_glm_fit <- ref_customer_split_train |>
+  ml_generalized_linear_regression(
+    formula = logistic_duration ~ Recency + Frequency + Monetary + Average_basket_size + Unique_products + highest_month_spending + month_with_max_spending, family = "binomial"
+  ) |>
+  tidy() |>
+  collect()
+
+
+```
+
+#PLotting the CI
+```{r}
+library(ggplot2)
+
+tidy_glm_fit |>
+  ggplot(aes(x = term, y = estimate)) +
+  geom_point(size = 0.5) + 
+  geom_errorbar(
+    aes(ymin = estimate - 1.96*std.error, ymax = estimate + 1.96*std.error),
+    width = 0.1
+  ) + 
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  coord_flip()+
+  labs(
+    title = "Confidence Intervals", 
+    subtitle = "Parameter estimates with approximate 95% confidence intervals"
+  )
+
+
+```
+
+
 
 
 ```{r}
@@ -275,15 +307,17 @@ fit_logistic |> tidy()
 ```
 
 ```{r}
+#month with max spending - change to festive or not festive 
+#average basket size eda
 fit_logistic2 <- ref_customer_split_train |>
-  ml_generalized_linear_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized + Average_basket_size + Unique_products + month_with_max_spending + highest_month_spending, family = "binomial")
+  ml_generalized_linear_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized + Avg_spend_per_transaction + Unique_products + month_with_max_spending, family = "binomial")
 
 fit_logistic2 |>
   tidy()
 
 
 fit_logistic3 <- ref_customer_split_train |>
-  ml_logistic_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized + Average_basket_size + Unique_products + month_with_max_spending + highest_month_spending)
+  ml_logistic_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized + Average_basket_size + Unique_products + month_with_max_spending)
 
 fit_logistic3$summary$area_under_roc() #0.9409725
 
@@ -576,54 +610,6 @@ c2_europe <- mapCountryData(c2, nameColumnToPlot="Expenditure", mapRegion = "Eur
 
 ```
 
-```{r}
-#correlation matrix 
-
-library(corrr)
-
-#monetary value/freq
-
-
-corr_analysis <- ref_customer |>
-  group_by(CustomerNo) |>
-  mutate(avg_spend_per_transaction = Monetary/Recency) |> #avg spend/transaction/customerno
-  mutate(avg_time_btwn_orders = mean(diff(Duration))) |> #avg time between orders
-  mutate(month_most_spending = ) #number of unique items bought
-  
-  ml_corr(corr_analysis)
-
-"average_time_between_orders <- transaction_clean |>
-  arrange(CustomerNo, FormattedDate) |>
-  group_by(CustomerNo) |>
-  summarise(average_time_between_orders = mean(diff(FormattedDate)))
-
-unique_products_bought <- transaction_clean |>
-  group_by(CustomerNo) |>
-  summarise(unique_products = n_distinct(ProductName))
-
-month_with_most_spending <- transaction_clean |>
-  mutate(month = month(FormattedDate)) |>
-  group_by(CustomerNo, month) |>
-  summarise(total_spent = sum(Price * Quantity)) |>
-  arrange(desc(total_spent)) 
-
-#added an additional column for months with most # of orders
-month_with_most_orders <- transaction_clean |>
-  mutate(month = month(FormattedDate)) |>
-  group_by(month) |>
-  summarize(total_orders = n()) |>
-  arrange(desc(total_orders))
-
-#put all data frames into list
-df <- list(average_spend_per_transaction, average_time_between_orders, unique_products_bought, month_with_most_spending)      
-
-#merge all data frames together
-corr_analysis <- Reduce(function(x, y) full_join(x, y, by = 'CustomerNo'), df)"
-
-
-ml_corr(corr_analysis)
-
-```
 PRODUCT ANALYSIS
 ```{r}
 # Load required libraries
@@ -639,13 +625,13 @@ product_rfm <- transaction_clean |>
   dplyr::mutate(Revenue = Quantity * Price) |>
   group_by(ProductNo, ProductName) |>
   summarize(
-    Recency = as.numeric(datediff(max(FormattedDate), to_date("2019-12-31"))*(-1)),
+    Price = mean(Price),
     Frequency = n(),
+    AvgTransactionQuantity = mean(Quantity),
+    Recency = as.numeric(datediff(max(FormattedDate), to_date("2019-12-31"))*(-1)),
     Monetary = sum(Revenue)
   ) |>
   arrange(desc(Monetary), desc(Frequency)) |> collect()
-
-glimpse(product_rfm)
 
 # 2. Pareto Analysis
 
@@ -654,9 +640,7 @@ revenue_threshold <- sum(product_rfm$Monetary) * 0.8
 top_products <- product_rfm |>
   mutate(CumulativeRevenue = cumsum(Monetary)) |>
   filter(CumulativeRevenue <= revenue_threshold) |> 
-  arrange(desc(Monetary), desc(Frequency), Recency) |> collect()
-
-top_products
+  arrange(desc(Monetary), desc(Frequency), Recency) 
 
 # Visualize the Pareto distribution of top products
 dbplot_bar(top_products, x = ProductName, y = Monetary) 
@@ -664,10 +648,9 @@ dbplot_bar(top_products, x = ProductName, y = Monetary)
 ## After visualization, recognition of Pareto distribution - below are tests to confirm
 
 # 3. Empirical Verification using Pareto Principle
-cumulative_revenue <- sum(product_rfm$Monetary)
-total_revenue <- sum(product_rfm$Monetary)
-top_20_percent_products <- sum(cumulative_revenue <= (0.8 * total_revenue))
-cat("Percentage of products contributing to 80% of revenue:", (top_20_percent_products / nrow(product_rfm)) * 100, "%\n")
+
+percentage_revenuethreshold <- nrow(top_products)/nrow(product_rfm)
+percentage_revenuethreshold
 
 # 4. T-test Verification
 # Note: T-test requires data collection to R as Spark doesn't natively support this test
@@ -690,7 +673,7 @@ dbplot_bar(means, x=Group, y=Mean)
 # 5. Kolmogorov-Smirnov Test
 # Estimating parameters for Pareto distribution
 xmin <- min(product_rfm$Monetary)
-alpha <- length(product_rfm$Monetary) / sum(log(product_rfm$Monetary/xmin))
+alpha <- length(product_rfm$Monetary)/sum(log(product_rfm$Monetary/xmin))
 
 # Theoretical Pareto CDF function
 ppareto <- function(q, alpha, xmin) {
@@ -701,7 +684,11 @@ ppareto <- function(q, alpha, xmin) {
 ks_result <- ks.test(product_rfm$Monetary, ppareto, alpha, xmin)
 
 print(ks_result)
+
 ```
+
+
+GRAPHICAL VISUALISATION
 ```{r}
 category_revenue <- transaction_clean |>
   dplyr::mutate(Revenue = Price*Quantity) |>
@@ -712,26 +699,67 @@ category_revenue <- transaction_clean |>
 # Plotting
 ggplot(category_revenue, aes(x=reorder(ProductName, -TotalRevenue), y=TotalRevenue)) +
   geom_bar(stat="identity", fill="skyblue") +
-  labs(title="Revenue by Product Category", x="Product Category", y="Total Revenue") +
+  labs(title="Revenue by Product", x="Product", y="Total Revenue") +
   theme_minimal() +
   theme(axis.text.x=element_blank())
+
+
+#add dummy variable
+
+product_rfm <- product_rfm|>
+  mutate(isTopProduct = if_else(ProductNo %in% top_products$ProductNo, 1, 0))
+
+product_rfm
+
 ```
 
-```{r}
-rfm_stats_product <- product_rfm |>
-  summarize(
-    r_mean = mean(Recency), 
-    r_sd = sd(Recency), 
-    f_mean = mean(Frequency),
-    f_sd = sd(Frequency),
-    m_mean = mean(Monetary),
-    m_sd = sd(Monetary))
 
-product_rfm_stdz <- product_rfm %>%
-  mutate(isTopProduct = ifelse(ProductNo %in% top_products$ProductNo, 1, 0)) |>
-  mutate(R_standardized = (Recency - !!rfm_stats_product$r_mean) / !!rfm_stats_product$r_sd,
-         F_standardized = (Frequency - !!rfm_stats_product$f_mean) / !!rfm_stats_product$f_sd,
-         M_standardized = (Monetary - !!rfm_stats_product$m_mean) / !!rfm_stats_product$m_sd) 
+FAILED LOGISTIC REGRESSION
+```{r}
+# rfm_stats_product <- product_rfm |>
+#   summarize(
+#     r_mean = mean(Recency), 
+#     r_sd = sd(Recency), 
+#     f_mean = mean(Frequency),
+#     f_sd = sd(Frequency),
+#     m_mean = mean(Monetary),
+#     m_sd = sd(Monetary))
+# 
+# product_rfm_stdz <- product_rfm %>%
+#   mutate(isTopProduct = ifelse(ProductNo %in% top_products$ProductNo, 1, 0)) |>
+#   mutate(R_standardized = (Recency - !!rfm_stats_product$r_mean) / !!rfm_stats_product$r_sd,
+#          F_standardized = (Frequency - !!rfm_stats_product$f_mean) / !!rfm_stats_product$f_sd,
+#          M_standardized = (Monetary - !!rfm_stats_product$m_mean) / !!rfm_stats_product$m_sd) 
+```
+
+PRODUCT LOGISTIC REGRESSION
+
+```{r}
+
+library(dbplyr)
+#determine based on transaction factors of price and quantity that what makes a top product
+
+product_rfm_spark <- copy_to(sc,product_rfm) 
+
+glimpse(product_rfm_spark)
+
+#running logistic regression on Price and Quantity
+top_products_logistic_regression <- product_rfm_spark|>
+  ml_generalized_linear_regression(
+    formula = isTopProduct ~ Price + AvgTransactionQuantity + Frequency, family = "binomial") |> tidy()
+
+#creating training and testing validation
+product_analysis_split <- product_rfm_spark|>
+  sdf_random_split(training = 0.8, testing = 0.2, seed = 123)
+
+top_product_analysis_train <- product_analysis_split$training
+
+top_product_analysis_test <- product_analysis_split$testing
+
+lr_fit <- top_product_analysis_train|> ml_logistic_regression(formula = isTopProduct ~ Price + AvgTransactionQuantity + Frequency)
+
+lr_fit_summary<- ml_evaluate(lr_fit, dataset = top_product_analysis_test )
+lr_fit_summary$area_under_roc()
 ```
 
 ####seasonality analysis####
@@ -1004,32 +1032,4 @@ test <- ref_customer %>%
   group_by(CustomerNo) %>%
   summarize(date_list = collect_list(FormattedDate))
 
-```
-
-```{r}
-#ignore this 
-avg_days_per_customer <- numeric()
-
-# Get a unique list of customer numbers
-unique_customers <- unique(ref_customer$CustomerNo)
-
-# Iterate over each customer
-for (customer in unique_customers) {
-  customer_data <- df[df$CustomerNo == customer, ]
-  num_transactions <- nrow(customer_data)
-  
-  if (num_transactions > 1) {
-    transaction_dates <- as.numeric(difftime(customer_data$TransactionDate, lag(customer_data$TransactionDate)))
-    avg_days <- mean(transaction_dates, na.rm = TRUE)
-    avg_days_per_customer <- c(avg_days_per_customer, avg_days)
-  } else {
-    # If there's only one transaction, average is 0
-    avg_days_per_customer <- c(avg_days_per_customer, 0)
-  }
-}
-
-# Combine the results with customer numbers
-result <- data.frame(CustomerNo = unique_customers, AverageDays = avg_days_per_customer)
-
-print(result)
 ```
