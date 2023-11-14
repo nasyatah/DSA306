@@ -379,18 +379,27 @@ ref_customer_split_train |>
 
 ```
 
+5.1.x CI plot - with all the variables 
+```{r}
+
+
+```
 
 
 5.1.4 Evaluating the models
 ```{r}
 
+#only rfm
 fit_logistic1<- ref_customer_split_train |> 
   ml_logistic_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized)
 
+validation_summary <- ml_evaluate(fit_logistic1, dataset = ref_customer_split_test)
+validation_summary$area_under_roc()
 
-fit_logistic1$summary$area_under_roc() 
+#fit_logistic1$summary$area_under_roc() 
 fit_logistic1 |> tidy()
 
+#all variables
 fit_logistic2 <- ref_customer_split_train |>
   ml_generalized_linear_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized + Average_basket_size + Unique_products + festive_spender, family = "binomial")
 
@@ -401,16 +410,21 @@ fit_logistic2 |>
 fit_logistic3 <- ref_customer_split_train |>
   ml_logistic_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized + Average_basket_size + Unique_products + festive_spender)
 
-fit_logistic3$summary$area_under_roc() 
+#fit_logistic3$summary$area_under_roc() 
+validation_summary3 <- ml_evaluate(fit_logistic3, dataset = ref_customer_split_test)
+validation_summary3$area_under_roc()
 
+#rfm + festive spender
 fit_logistic4 <- ref_customer_split_train |>
   ml_logistic_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized + festive_spender)
 
-fit_logistic4$summary$area_under_roc() 
+#fit_logistic4$summary$area_under_roc() 
+validation_summary4 <- ml_evaluate(fit_logistic4, dataset = ref_customer_split_test)
+validation_summary4$area_under_roc()
 
 ```
 
-5.1.5 Out-of-sample testing
+5.1.5 Out-of-sample testing (remove?)
 ```{r}
 # out of sample test with MSE
 pred_1 <- ml_predict(fit_logistic1, dataset = ref_customer_split_test)
@@ -487,8 +501,8 @@ cv <- ml_cross_validator(
   estimator = Logistic_pipeline,
   estimator_param_maps = list(
     logistic_regression = list(
-      elastic_net_param = c(0.25, 0.75),
-      reg_param = c(0, 0.001, 0.01)
+      elastic_net_param = c(0, 0.25, 0.5, 0.75,1), #alpha
+      reg_param = c(0, 0.001, 0.01, 0.1) #lambda
     )
   ),
   evaluator = ml_binary_classification_evaluator(
@@ -500,7 +514,7 @@ cv <- ml_cross_validator(
   seed = 1337
 )
 
-cv_model <- ml_fit(cv, ref_customer_split_train)
+cv_model <- ml_fit(cv, ref_customer_split_train) #training model or the full set?
 
 ml_validation_metrics(cv_model) |>
   arrange(desc(areaUnderROC))
