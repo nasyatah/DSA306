@@ -335,35 +335,7 @@ corr_plot2 + theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 #Remove average basket size since it is highly correlated with average spend per transaction
 ```
-
-
-5.1.2 Standardisation of variables (i think we shld split test/train before standardising?)
-```{r}
-#standardised values
-
-ref_customer_stats <- ref_customer |>
-  summarize(
-    r_mean = mean(Recency), r_sd = sd(Recency), 
-    f_mean = mean(Frequency), f_sd = sd(Frequency),
-    m_mean = mean(Monetary), m_sd = sd(Monetary), 
-    unique_product_mean = mean(Unique_products), unique_product_sd = sd(Unique_products), 
-    Avg_spend_per_transaction_mean = mean(Avg_spend_per_transaction), Avg_spend_per_transaction_sd = sd(Avg_spend_per_transaction)
-  ) |> collect() #bring back to local r
-
-
-ref_customer <- ref_customer |>
-  mutate(R_standardized = (Recency - !!ref_customer_stats$r_mean) / !!ref_customer_stats$r_sd,
-         F_standardized = (Frequency - !!ref_customer_stats$f_mean) / !!ref_customer_stats$f_sd,
-         M_standardized = (Monetary - !!ref_customer_stats$m_mean) / !!ref_customer_stats$m_sd, 
-         Unique_products_standardized = (Unique_products - !!ref_customer_stats$unique_product_mean) / !!ref_customer_stats$unique_product_sd,
-         Avg_spend_standardized = (Avg_spend_per_transaction - !!ref_customer_stats$Avg_spend_per_transaction_mean) / !!ref_customer_stats$Avg_spend_per_transaction_sd) 
-
-ref_customer |>
-  sdf_describe(cols = c("R_standardized","F_standardized","M_standardized","Unique_products_standardized","Avg_spend_standardized"))
-
-```
-
-5.1.3 Splitting into training and testing set
+5.1.2 Splitting into training and testing set
 ```{r}
 ref_customer_split <- ref_customer |>  
   sdf_random_split(training = 0.8, testing = 0.2, seed = 44)
@@ -373,6 +345,41 @@ ref_customer_split_test <- ref_customer_split$testing
 
 ref_customer_split_train
 ```
+
+5.1.3 Standardisation of variables (i think we shld split test/train before standardising?)
+```{r}
+#standardised values
+
+#get the mean and sd values based on the training set
+ref_customer_stats <- ref_customer_split_train |>
+  summarize(
+    r_mean = mean(Recency), r_sd = sd(Recency), 
+    f_mean = mean(Frequency), f_sd = sd(Frequency),
+    m_mean = mean(Monetary), m_sd = sd(Monetary), 
+    unique_product_mean = mean(Unique_products), unique_product_sd = sd(Unique_products), 
+    Avg_spend_per_transaction_mean = mean(Avg_spend_per_transaction), Avg_spend_per_transaction_sd = sd(Avg_spend_per_transaction)
+  ) |> collect() #bring back to local r
+
+#apply it to the training set
+ref_customer_split_train <- ref_customer_split_train |>
+  mutate(R_standardized = (Recency - !!ref_customer_stats$r_mean) / !!ref_customer_stats$r_sd,
+         F_standardized = (Frequency - !!ref_customer_stats$f_mean) / !!ref_customer_stats$f_sd,
+         M_standardized = (Monetary - !!ref_customer_stats$m_mean) / !!ref_customer_stats$m_sd, 
+         Unique_products_standardized = (Unique_products - !!ref_customer_stats$unique_product_mean) / !!ref_customer_stats$unique_product_sd,
+         Avg_spend_standardized = (Avg_spend_per_transaction - !!ref_customer_stats$Avg_spend_per_transaction_mean) / !!ref_customer_stats$Avg_spend_per_transaction_sd) 
+#apply it to the test set
+ref_customer_split_test <- ref_customer_split_test |>
+  mutate(R_standardized = (Recency - !!ref_customer_stats$r_mean) / !!ref_customer_stats$r_sd,
+         F_standardized = (Frequency - !!ref_customer_stats$f_mean) / !!ref_customer_stats$f_sd,
+         M_standardized = (Monetary - !!ref_customer_stats$m_mean) / !!ref_customer_stats$m_sd, 
+         Unique_products_standardized = (Unique_products - !!ref_customer_stats$unique_product_mean) / !!ref_customer_stats$unique_product_sd,
+         Avg_spend_standardized = (Avg_spend_per_transaction - !!ref_customer_stats$Avg_spend_per_transaction_mean) / !!ref_customer_stats$Avg_spend_per_transaction_sd) 
+ref_customer_split_train |>
+  sdf_describe(cols = c("R_standardized","F_standardized","M_standardized","Unique_products_standardized","Avg_spend_standardized"))
+
+```
+
+
 
 5.1.4 Evaluating the models
 ```{r}
