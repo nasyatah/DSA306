@@ -331,24 +331,21 @@ ref_customer
 
 5.1.1 Correlation Analysis
 ```{r}
-#correlation matrix
 library(corrr)
 library(ggplot2)
-ref_customer |>
+
+#correlation matrix
+corr_matrix <- ref_customer |>
   select(-CustomerNo, -Duration, -festive_spender, -logistic_duration) |>
   correlate(use = "pairwise.complete.obs", method = "pearson")
 
 
 #plot the sample correlations
-corr_plot <- ref_customer |> 
-  select(-CustomerNo, -Duration, -festive_spender, -logistic_duration) |>
-  correlate(use = "pairwise.complete.obs", method = "pearson") |>
-  shave(upper = TRUE) 
+corr_plot <- corr_matrix |>
+  shave(upper = TRUE)
 
-corr_plot2 <- rplot(corr_plot)
-
-# Modify the theme settings to adjust the x-axis labels
-corr_plot2 + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+rplot(corr_plot) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 #Remove average spend per transaction(Monetary/Frequency) since it is highly correlated with average basket size
 ```
