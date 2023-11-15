@@ -3,3 +3,4 @@
 .RData
 .Ruserdata
 *.log
+logs/log4j.spark.log

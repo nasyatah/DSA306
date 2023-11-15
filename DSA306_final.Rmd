@@ -121,6 +121,19 @@ transaction_clean <-transaction_clean |>
 
 transaction_clean
 ```
+2.2.3 Removing transactions from 2018 - focus on only 2019 data
+```{r}
+transaction_clean <- transaction_clean |>
+  filter(year(FormattedDate) == 2019)
+
+```
+
+2.2.4 Filtering for only UK customers (Run this code after running 3.1)
+```{r}
+transaction_clean <- transaction_clean |>
+  filter(Country == "United Kingdom")
+
+```
 
 ##------------------------
 #SECTION 3: Customer EDA and Visualization
@@ -136,6 +149,8 @@ country_plot <- transaction_clean |>
 
 dbplot_bar(country_plot, x = Country, Customers = n_distinct(CustomerNo)) + 
   theme_minimal()
+
+#after geographical an
 ```
 
 3.2 Visualizing transaction volume by day of the week
@@ -170,38 +185,28 @@ ggplot(temp_df, aes(x = factor(day_of_week), y = number_of_transactions)) +
 
 3.3 Visualizing transaction volume by month
 ```{r}
-temp_df <- transaction_clean |> 
+temp_df1 <- transaction_clean |> 
   mutate(month = Month(FormattedDate)) |>
   group_by(month) |>
   summarize(Number_of_transactions = n_distinct(TransactionNo)) |>
   collect()
 
 #test for statistical significance
-lm_fit <- lm(month ~ Number_of_transactions, data = temp_df)
+lm_fit <- lm(month ~ Number_of_transactions, data = temp_df1)
 summary(lm_fit)
 
 #plot number of transactions against months
-ggplot(temp_df, aes(x = month, y = Number_of_transactions)) +
+ggplot(temp_df1, aes(x = month, y = Number_of_transactions)) +
   geom_line() + 
   scale_x_continuous(breaks = 1:12, labels = month.abb[1:12]) +
   labs(x = "Month", y = "Number of Transactions") + 
   theme_minimal()
+
+temp_df1
 ```
 
 3.4 Average spend per transaction
 ```{r}
-temp_df <- transaction_clean |>
-  group_by(TransactionNo) |>
-  summarize(avg_spend = sum(Price*Quantity)/n_distinct(TransactionNo)) |>
-  filter(avg_spend < 25000) |>
-  collect() #collect back to r for visualization purposes
-
-#Plot
-ggplot(temp_df, aes(x = avg_spend)) +
-  geom_histogram(binwidth = 1000, fill = "blue", color = "black", alpha = 0.7) +
-  labs(title = "Histogram of Average Spend per Transaction", x = "Average Spend", y = "Frequency") +
-  theme_minimal()
-
 #To check for high variablity, look at standard deviation or IQR
 temp_df2 <- transaction_clean |>
   group_by(TransactionNo) |>
@@ -209,49 +214,62 @@ temp_df2 <- transaction_clean |>
 
 sdf_describe(temp_df2, cols = "avg_spend")
 
+temp_df2 <- temp_df2 |>
+  filter(avg_spend < 25000) |>
+  collect() #collect back to r for visualization purposes
+
+#Plot
+ggplot(temp_df2, aes(x = avg_spend)) +
+  geom_histogram(binwidth = 1000, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Histogram of Average Spend per Transaction", x = "Average Spend", y = "Frequency") +
+  theme_minimal()
+
+
+
 ```
 
 3.5 Number of unique products bought per customer
 ```{r}
-temp_df <- transaction_clean |>
+#get standard deviation in spark 
+temp_df3 <- transaction_clean |>
   group_by(CustomerNo) |>
-  summarize(no_of_unique_products = n_distinct(ProductNo)) |>
+  summarize(no_of_unique_products = n_distinct(ProductNo))
+
+sdf_describe(temp_df3, cols = "no_of_unique_products")
+
+temp_df3 <- temp_df3 |>
   filter(no_of_unique_products < 500) |>
   collect()
 
-ggplot(temp_df, aes(x = no_of_unique_products)) +
+ggplot(temp_df3, aes(x = no_of_unique_products)) +
   geom_histogram(binwidth = 10, fill = "blue", color = "black", alpha = 0.7) +
   labs(title = "Histogram of unique products bought per customer", x = "Number of Unique Products", y = "Frequency") + 
   theme_minimal()
 
-#get standard deviation in spark 
-temp_df2 <- transaction_clean |>
-  group_by(CustomerNo) |>
-  summarize(no_of_unique_products = n_distinct(ProductNo))
 
-sdf_describe(temp_df2, cols = "no_of_unique_products")
 ```
 
 3.6 Average Basket Size
 ```{r}
-#Collect data back into r for visualization
-temp_df <- transaction_clean |>
+
+#use sdf_describe
+temp_df4 <- transaction_clean |>
   group_by(CustomerNo) |>
-  summarize(avg_basket_size = sum(Quantity)/n_distinct(TransactionNo)) |>
+  summarize(avg_basket_size = sum(Quantity)/n_distinct(TransactionNo))
+
+sdf_describe(temp_df4, cols = "avg_basket_size")
+
+#Collect data back into r for visualization
+temp_df4 <- temp_df4 |>
   filter(avg_basket_size < 5000) |>
   collect()
 
 #Plot
-ggplot(temp_df, aes(x = avg_basket_size)) +
+ggplot(temp_df4, aes(x = avg_basket_size)) +
   geom_histogram(binwidth = 50, fill = "blue", color = "black", alpha = 0.7) +
-  labs(title = "Histogram of unique Average Basket Size per customer", x = "Average Basket Size", y = "Frequency") + 
+  labs(title = "Histogram of Average Basket Size per customer", x = "Average Basket Size", y = "Frequency") + 
   theme_minimal()
 
-#use sdf_describe
-temp_df2 <- transaction_clean |>
-  group_by(CustomerNo) |>
-  summarize(avg_basket_size = sum(Quantity)/n_distinct(TransactionNo))
-sdf_describe(temp_df2, cols = "avg_basket_size")
 ```
 
 ##------------------------
@@ -300,7 +318,7 @@ median_duration <- ref_customer |>
   summarize(median_duration = median(Duration)) |>
   collect()
 
-#column for target variable
+#column for target variable - target engineering 
 ref_customer <- ref_customer |>
   mutate(logistic_duration = ifelse(Duration > !!median_duration$median_duration, 1, 0))
 
@@ -317,13 +335,13 @@ ref_customer
 library(corrr)
 library(ggplot2)
 ref_customer |>
-  select(-CustomerNo, -Duration, -month_with_max_spending, -logistic_duration) |>
+  select(-CustomerNo, -Duration, -festive_spender, -logistic_duration) |>
   correlate(use = "pairwise.complete.obs", method = "pearson")
 
 
 #plot the sample correlations
 corr_plot <- ref_customer |> 
-  select(-CustomerNo, -Duration, -month_with_max_spending, -highest_month_spending, -logistic_duration, -total_qty_of_items) |>
+  select(-CustomerNo, -Duration, -festive_spender, -logistic_duration) |>
   correlate(use = "pairwise.complete.obs", method = "pearson") |>
   shave(upper = TRUE) 
 
@@ -332,23 +350,120 @@ corr_plot2 <- rplot(corr_plot)
 # Modify the theme settings to adjust the x-axis labels
 corr_plot2 + theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
+#Remove average spend per transaction(Monetary/Frequency) since it is highly correlated with average basket size
 ```
-
 5.1.2 Splitting into training and testing set
 ```{r}
+ref_customer_split <- ref_customer |>  
+  sdf_random_split(training = 0.8, testing = 0.2, seed = 44)
+
+ref_customer_split_train <- ref_customer_split$training
+ref_customer_split_test <- ref_customer_split$testing
+
+ref_customer_split_train
+```
+
+5.1.3 Standardisation of variables 
+```{r}
+#standardised values
+
+#get the mean and sd values based on the training set
+ref_customer_stats <- ref_customer_split_train |>
+  summarize(
+    r_mean = mean(Recency), r_sd = sd(Recency), 
+    f_mean = mean(Frequency), f_sd = sd(Frequency),
+    m_mean = mean(Monetary), m_sd = sd(Monetary), 
+    unique_product_mean = mean(Unique_products), unique_product_sd = sd(Unique_products), 
+    avg_basket_size_mean = mean(Average_basket_size), avg_basket_size_sd = sd(Average_basket_size)
+  ) |> collect() #bring back to local r
+
+#apply it to the training set
+ref_customer_split_train <- ref_customer_split_train |>
+  mutate(R_standardized = (Recency - !!ref_customer_stats$r_mean) / !!ref_customer_stats$r_sd,
+         F_standardized = (Frequency - !!ref_customer_stats$f_mean) / !!ref_customer_stats$f_sd,
+         M_standardized = (Monetary - !!ref_customer_stats$m_mean) / !!ref_customer_stats$m_sd, 
+         Unique_products_standardized = (Unique_products - !!ref_customer_stats$unique_product_mean) / !!ref_customer_stats$unique_product_sd,
+         Average_basket_size_standardized = (Average_basket_size - !!ref_customer_stats$avg_basket_size_mean) / !!ref_customer_stats$avg_basket_size_sd) 
+
+#apply it to the test set
+ref_customer_split_test <- ref_customer_split_test |>
+  mutate(R_standardized = (Recency - !!ref_customer_stats$r_mean) / !!ref_customer_stats$r_sd,
+         F_standardized = (Frequency - !!ref_customer_stats$f_mean) / !!ref_customer_stats$f_sd,
+         M_standardized = (Monetary - !!ref_customer_stats$m_mean) / !!ref_customer_stats$m_sd, 
+         Unique_products_standardized = (Unique_products - !!ref_customer_stats$unique_product_mean) / !!ref_customer_stats$unique_product_sd,
+         Average_basket_size_standardized = (Average_basket_size - !!ref_customer_stats$avg_basket_size_mean) / !!ref_customer_stats$avg_basket_size_sd) 
+ref_customer_split_train |>
+  sdf_describe(cols = c("R_standardized","F_standardized","M_standardized","Unique_products_standardized","Average_basket_size_standardized"))
 
 ```
 
-5.1.3 Standardisation of variables
+5.1.4 CI plot - with all the variables 
 ```{r}
+tidy_glm_fit <- ref_customer_split_train |>
+  ml_generalized_linear_regression(
+    formula = logistic_duration ~ M_standardized + F_standardized + R_standardized + Average_basket_size_standardized + Unique_products_standardized + festive_spender
+  ) |> tidy() |> collect()
 
+#CI Plot
+library(ggplot2)
+
+tidy_glm_fit |>
+  ggplot(aes(x = term, y = estimate)) + geom_point(size = 0.5) + geom_errorbar(
+    aes(ymin = estimate - 1.96 * std.error, ymax = estimate + 1.96 * std.error),
+    width = 0.1 )+
+  geom_hline(yintercept = 0, linetype = "dashed") + 
+  coord_flip() +
+  labs(title = "Confidence Intervals",
+       subtitle = "Parameter estimates with approximate 95% confidence intervals" )
 
 ```
 
-5.1.4 Evaluating the models
+
+5.1.5 Evaluating the models
 ```{r}
 
+#only rfm
+fit_logistic1<- ref_customer_split_train |> 
+  ml_logistic_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized)
 
+validation_summary1 <- ml_evaluate(fit_logistic1, dataset = ref_customer_split_test)
+validation_summary1$area_under_roc()
+
+fit_logistic1
+
+#all the variables except avg_spend_per_transaction
+fit_logistic2 <- ref_customer_split_train |>
+  ml_logistic_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized + Average_basket_size_standardized + Unique_products_standardized + festive_spender)
+
+validation_summary2 <- ml_evaluate(fit_logistic2, dataset = ref_customer_split_test)
+validation_summary2$area_under_roc()
+
+fit_logistic2
+
+```
+
+5.1.5 Out-of-sample testing (remove?)
+```{r}
+# out of sample test with MSE
+pred_1 <- ml_predict(fit_logistic1, dataset = ref_customer_split_test)
+MSE_1 <- ml_regression_evaluator(
+pred_1,
+label_col = "logistic_duration",
+prediction_col = "prediction",
+metric_name = "mse"
+)
+
+pred_2 <- ml_predict(fit_logistic2, dataset = ref_customer_split_test)
+MSE_2 <- ml_regression_evaluator(
+pred_2,
+label_col = "logistic_duration",
+prediction_col = "prediction",
+metric_name = "mse"
+)
+
+
+MSE_1
+MSE_2
 
 ```
 
@@ -356,8 +471,79 @@ corr_plot2 + theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ##------------------------
 #SECTION 5.2: ML Pipeline - Logistic Regression
 ##------------------------
-```{r}
 
+5.2.1 Logistic Regression ML Pipeline
+```{r}
+#Logistic_pipeline <- ml_pipeline(sc)
+#ML Pipeline Logistic Regression
+Logistic_pipeline <- ml_pipeline(sc) |>
+  ft_string_indexer(
+    input_col = "festive_spender",
+    output_col = "festive_spender_indexed"
+    ) |>
+  ft_one_hot_encoder(
+    input_col = "festive_spender_indexed",
+    output_col = "festive_spender_encoded"
+  ) |>
+  ft_vector_assembler(
+    input_cols = c("Monetary", "Frequency", "Recency","Average_basket_size","Unique_products"),
+    output_col = "continuous_features"
+  ) |>
+  ft_standard_scaler(
+    input_col = "continuous_features",
+    output_col = "stdz_continuous_features",
+    with_mean = TRUE
+  ) |>
+    ft_vector_assembler(
+    input_cols = c("stdz_continuous_features","festive_spender_encoded"),
+    output_col = "all_features"
+  ) |>
+  ml_logistic_regression(
+    features_col = "all_features",
+    label_col = "logistic_duration"
+  )
+
+Logistic_pipeline
+
+```
+
+5.2.2 Cross validation 
+```{r}
+#cross-validation with elastic net
+cv <- ml_cross_validator(
+  sc,
+  estimator = Logistic_pipeline,
+  estimator_param_maps = list(
+    logistic_regression = list(
+      elastic_net_param = c(0, 0.25, 0.5, 0.75,1), #alpha
+      reg_param = c(0, 0.001, 0.01, 0.1) #lambda
+    )
+  ),
+  evaluator = ml_binary_classification_evaluator(
+    sc,
+    label_col = "logistic_duration"
+  ),
+  num_folds = 10,
+  parallelism = 4,
+  seed = 1337
+)
+
+cv_model <- ml_fit(cv, ref_customer_split_train) #training model or the full set?
+
+ml_validation_metrics(cv_model) |>
+  arrange(desc(areaUnderROC))
+
+#save the pipeline model to disk
+ml_save(cv_model$best_model, path = "spark_model1", overwrite = TRUE)
+```
+5.2.3 Deploy model to production using Plumber
+```{r}
+#install.packages("plumber")
+library(plumber)
+
+#Start a Web Service
+plumb(file = "spark-plumber1.R") |>
+  pr_run(port = 8000)
 
 ```
 
@@ -435,15 +621,29 @@ kmeans_pipeline <- ml_pipeline(sc) |>
   
 fitted_model <- ml_fit(kmeans_pipeline, ref_customer)
 
-predictions <- ml_transform(fitted_model, ref_customer) |>
-  collect()
+
+
+#save the pipeline model to disk
+ml_save(fitted_model, path = "spark_model2", overwrite = TRUE)
 ```
 
-5.4.2 Understanding the clusters
+5.4.2 Deploy Kmeans model to production using Plumber
+```{r}
+library(plumber)
+
+#Start a Web Service
+plumb(file = "spark-plumber2.R") |>
+  pr_run(port = 8000)
+
+```
+
+
+5.4.3 Understanding the clusters
 ```{r}
 #Every customer is assigned to one of the 4 clusters - 0,1,2,3
 #What do these clusters mean? 
-
+predictions <- ml_transform(fitted_model, ref_customer) |>
+  collect()
 #move the dataframe with all the ref_customer columns tgt with the cluster column into spark to do further analysis
 ref_prediction <- copy_to(sc, predictions, overwrite = TRUE)
 
@@ -458,6 +658,23 @@ ref_prediction |>
   arrange(cluster)
 ```
 
+5.4.4 Visualizing the clusters
+```{r}
+#install.packages("scatterplot3d")
+library(scatterplot3d)
+
+recency <- unlist(lapply(predictions$features_stdz, function(x) x[[1]]))
+frequency <- unlist(lapply(predictions$features_stdz, function(x) x[[2]]))
+monetary <- unlist(lapply(predictions$features_stdz, function(x) x[[3]]))
+
+predictions$cluster <- as.factor(predictions$cluster)
+
+cluster_colors <- c("red", "blue", "green","yellow")
+colors <- cluster_colors[predictions$cluster]
+
+# Create the 3D scatter plot
+scatterplot3d(recency, frequency, monetary, color = colors)
+```
 
 
 
