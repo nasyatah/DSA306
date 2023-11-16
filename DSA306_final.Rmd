@@ -110,7 +110,7 @@ transaction_clean <- transaction_clean |>
     day = lpad(day, 2, "0")
   )
 
-# Combine the formatted values to create the "yyyy/mm/dd" date
+# Combine the formatted values to create the "yyyy-mm-dd" date
 transaction_clean <- transaction_clean |>
   mutate(FormattedDate = concat(year, "-", month, "-", day)) |>
   dplyr::select(-month, -day, -year, -Date)
@@ -291,7 +291,7 @@ ref_customer <- transaction_clean |>
     ) 
 
 #create a column to identify the month where the each customer spent the most
-temp_df <- transaction_clean |> 
+temp_df5 <- transaction_clean |> 
   select(CustomerNo, FormattedDate, Price,Quantity) |>
   mutate(total_spent = Price*Quantity) |>
   group_by(CustomerNo, month(FormattedDate)) |>
@@ -305,7 +305,7 @@ temp_df <- transaction_clean |>
   select(CustomerNo, month_with_max_spending)
 
 #left_join the customer_ref with the month_with_max_spending column in temp_df
-ref_customer <- left_join(ref_customer, temp_df, by = "CustomerNo")
+ref_customer <- left_join(ref_customer, temp_df5, by = "CustomerNo")
 
 #recode the values in month_with_max_spending to 0 or 1, where customers who spent the most in Oct-Nov will be assigned 1 and the rest are assigned 0. This feature will be used to idenitfy festive spenders. 
 ref_customer <- ref_customer |>
@@ -320,7 +320,7 @@ median_duration <- ref_customer |>
 
 #column for target variable - target engineering 
 ref_customer <- ref_customer |>
-  mutate(logistic_duration = ifelse(Duration > !!median_duration$median_duration, 1, 0))
+  mutate(loyal_customer = ifelse(Duration > !!median_duration$median_duration, 1, 0))
 
 ref_customer
 ```
@@ -336,7 +336,7 @@ library(ggplot2)
 
 #correlation matrix
 corr_matrix <- ref_customer |>
-  select(-CustomerNo, -Duration, -festive_spender, -logistic_duration) |>
+  select(-CustomerNo, -Duration, -festive_spender, -loyal_customer) |>
   correlate(use = "pairwise.complete.obs", method = "pearson")
 
 
@@ -397,7 +397,7 @@ ref_customer_split_train |>
 ```{r}
 tidy_glm_fit <- ref_customer_split_train |>
   ml_generalized_linear_regression(
-    formula = logistic_duration ~ M_standardized + F_standardized + R_standardized + Average_basket_size_standardized + Unique_products_standardized + festive_spender
+    formula = loyal_customer ~ M_standardized + F_standardized + R_standardized + Average_basket_size_standardized + Unique_products_standardized + festive_spender
   ) |> tidy() |> collect()
 
 #CI Plot
@@ -420,7 +420,7 @@ tidy_glm_fit |>
 
 #only rfm
 fit_logistic1<- ref_customer_split_train |> 
-  ml_logistic_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized)
+  ml_logistic_regression(formula = loyal_customer ~ M_standardized + F_standardized + R_standardized)
 
 validation_summary1 <- ml_evaluate(fit_logistic1, dataset = ref_customer_split_test)
 validation_summary1$area_under_roc()
@@ -429,7 +429,7 @@ fit_logistic1
 
 #all the variables except avg_spend_per_transaction
 fit_logistic2 <- ref_customer_split_train |>
-  ml_logistic_regression(formula = logistic_duration ~ M_standardized + F_standardized + R_standardized + Average_basket_size_standardized + Unique_products_standardized + festive_spender)
+  ml_logistic_regression(formula = loyal_customer ~ M_standardized + F_standardized + R_standardized + Average_basket_size_standardized + Unique_products_standardized + festive_spender)
 
 validation_summary2 <- ml_evaluate(fit_logistic2, dataset = ref_customer_split_test)
 validation_summary2$area_under_roc()
@@ -444,7 +444,7 @@ fit_logistic2
 pred_1 <- ml_predict(fit_logistic1, dataset = ref_customer_split_test)
 MSE_1 <- ml_regression_evaluator(
 pred_1,
-label_col = "logistic_duration",
+label_col = "loyal_customer",
 prediction_col = "prediction",
 metric_name = "mse"
 )
@@ -452,7 +452,7 @@ metric_name = "mse"
 pred_2 <- ml_predict(fit_logistic2, dataset = ref_customer_split_test)
 MSE_2 <- ml_regression_evaluator(
 pred_2,
-label_col = "logistic_duration",
+label_col = "loyal_customer",
 prediction_col = "prediction",
 metric_name = "mse"
 )
@@ -496,7 +496,7 @@ Logistic_pipeline <- ml_pipeline(sc) |>
   ) |>
   ml_logistic_regression(
     features_col = "all_features",
-    label_col = "logistic_duration"
+    label_col = "loyal_customer"
   )
 
 Logistic_pipeline
@@ -517,14 +517,14 @@ cv <- ml_cross_validator(
   ),
   evaluator = ml_binary_classification_evaluator(
     sc,
-    label_col = "logistic_duration"
+    label_col = "loyal_customer"
   ),
   num_folds = 10,
   parallelism = 4,
   seed = 1337
 )
 
-cv_model <- ml_fit(cv, ref_customer_split_train) #training model or the full set?
+cv_model <- ml_fit(cv, ref_customer_split_train) 
 
 ml_validation_metrics(cv_model) |>
   arrange(desc(areaUnderROC))
