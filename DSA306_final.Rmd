@@ -7,7 +7,7 @@ date: "2023-11-11"
 ##------------------------
 #SECTION 1: Big Data Apache File Format
 ##------------------------
-#Reading the csv file and saving it as Parquet format
+1.1 Reading the csv file and saving it as Parquet format
 ```{r}
 # OPEN CSV FILE HERE
 # transactions <- arrow::open_dataset(sources = "transactions.csv", format = "csv")
@@ -19,17 +19,17 @@ date: "2023-11-11"
 ```
 
 
-#Opening the parquet file and create a reference in Spark
+1.2 Opening the parquet file and create a reference in Spark
 ```{r}
 #OPEN SAVED PARQUET FILE HERE
-transactions_parquet <- arrow::open_dataset(
+transaction_parquet <- arrow::open_dataset(
   sources = "parquet_folder/part-0.parquet",
   format = "parquet")
 
 library(dplyr)
 
 # Collect the data into a data frame
-transaction_df <- transactions_parquet |>
+transaction_df <- transaction_parquet |>
   dplyr::collect()
 
 
@@ -514,7 +514,7 @@ ggplot(silhouette_data, aes(k,silhouette_score)) +
 #SECTION 5.4: ML Pipeline - Kmeans Clustering
 ##------------------------
 
-5.4.1 Creating the pipeline, fitting the model and collecting the predictions
+5.4.1 Creating the pipeline, fitting the model and saving it to disk
 ```{r}
 kmeans_pipeline <- ml_pipeline(sc) |>
   ft_vector_assembler(
@@ -535,12 +535,12 @@ kmeans_pipeline <- ml_pipeline(sc) |>
     seed = 8472
   ) 
   
-Kmeans_pipeline_model <- ml_fit(kmeans_pipeline, ref_customer)
+kmeans_pipeline_model <- ml_fit(kmeans_pipeline, ref_customer)
 
 
 
 #save the pipeline model to disk
-ml_save(Kmeans_pipeline_model, path = "spark_model2", overwrite = TRUE)
+ml_save(kmeans_pipeline_model, path = "spark_model2", overwrite = TRUE)
 ```
 
 
@@ -548,7 +548,7 @@ ml_save(Kmeans_pipeline_model, path = "spark_model2", overwrite = TRUE)
 ```{r}
 #Every customer is assigned to one of the 4 clusters - 0,1,2,3
 #What do these clusters mean? 
-predictions <- ml_transform(Kmeans_pipeline_model, ref_customer)
+predictions <- ml_transform(kmeans_pipeline_model, ref_customer)
 
 #group by the cluster and get the mean values of RFM 
 predictions |>
@@ -558,12 +558,12 @@ predictions |>
     mean_frequency = mean(Frequency), 
     mean_monetary = mean(Monetary)
   ) |>
-  arrange(cluster)
+  arrange(cluster) 
 ```
 
 5.4.4 Visualizing the clusters
 ```{r}
-predictions <- ml_transform(fitted_model, ref_customer) |>
+predictions <- ml_transform(kmeans_pipeline_model, ref_customer) |>
   collect()
 #install.packages("scatterplot3d")
 library(scatterplot3d)
