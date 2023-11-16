@@ -341,10 +341,9 @@ corr_matrix <- ref_customer |>
 
 
 #plot the sample correlations
-corr_plot <- corr_matrix |>
-  shave(upper = TRUE)
-
-rplot(corr_plot) +
+corr_matrix |>
+  shave(upper = TRUE) |>
+  rplot() + 
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 #Remove average spend per transaction(Monetary/Frequency) since it is highly correlated with average basket size
