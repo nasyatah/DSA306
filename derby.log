@@ -1,15 +1,8 @@
 ----------------------------------------------------------------
-<<<<<<< HEAD
-Mon Nov 13 10:34:29 SGT 2023:
-Booting Derby version The Apache Software Foundation - Apache Derby - 10.14.2.0 - (1828579): instance a816c00e-018b-c687-c8a8-000002cc8b10 
+Thu Nov 16 19:41:02 SGT 2023:
+Booting Derby version The Apache Software Foundation - Apache Derby - 10.14.2.0 - (1828579): instance a816c00e-018b-d7ef-3eea-000003808d80 
 on database directory memory:/Users/andy/Documents/GitHub/DSA306/databaseName=metastore_db with class loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27 
 Loaded from file:/Users/andy/spark/spark-3.4.0-bin-hadoop3/jars/derby-10.14.2.0.jar
-=======
-Tue Nov 14 18:58:26 SGT 2023:
-Booting Derby version The Apache Software Foundation - Apache Derby - 10.14.2.0 - (1828579): instance a816c00e-018b-cd7b-8683-00000272b5a8 
-on database directory memory:/Users/nasyatah./Documents/GitHub/DSA306/databaseName=metastore_db with class loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27 
-Loaded from file:/Users/nasyatah./spark/spark-3.4.0-bin-hadoop3/jars/derby-10.14.2.0.jar
->>>>>>> 7d2c6b3d0f59ee66ef60e04987644db75c2b11e1
 java.vendor=Amazon.com Inc.
 java.runtime.version=17.0.8.1+8-LTS
 user.dir=/Users/andy/Documents/GitHub/DSA306
