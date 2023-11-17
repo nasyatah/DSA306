@@ -470,6 +470,21 @@ ml_save(cv_model$best_model, path = "spark_model1", overwrite = TRUE)
 
 5.3.1 Determining the optimal number of clusters 
 ```{r}
+#standardize rfm values
+#get the mean and sd values based on the whole dataset
+rfm_stats <- ref_customer |>
+  summarize(
+    r_mean = mean(Recency), r_sd = sd(Recency), 
+    f_mean = mean(Frequency), f_sd = sd(Frequency),
+    m_mean = mean(Monetary), m_sd = sd(Monetary), 
+   ) |> collect() #bring back to local r
+
+#apply it to the whole data set
+ref_customer_for_kmeans <- ref_customer |>
+  mutate(R_standardized = (Recency - !!ref_customer_stats$r_mean) / !!ref_customer_stats$r_sd,
+         F_standardized = (Frequency - !!ref_customer_stats$f_mean) / !!ref_customer_stats$f_sd,
+         M_standardized = (Monetary - !!ref_customer_stats$m_mean) / !!ref_customer_stats$m_sd,)
+
 #iterate through the different values of k 
 k_values <- c(2, 3, 4, 5, 6)
 silhouette_scores <- numeric(length(k_values))
@@ -477,7 +492,7 @@ silhouette_scores <- numeric(length(k_values))
 for (i in 1:length(k_values)) {
   k <- k_values[i]
   
-  k_means_model <- ref_customer |>
+  k_means_model <- ref_customer_for_kmeans |>
     ml_kmeans(
       formula = ~ R_standardized + F_standardized + M_standardized,
       k = k, 
