@@ -361,7 +361,7 @@ validation_summary1$area_under_roc() #0.9355022
 
 Model_1
 
-#all the variables except avg_spend_per_transaction
+#all the variables except avg_spend_per_trxcn
 Model_2 <- ref_customer_split_train |>
   ml_logistic_regression(formula = loyal_customer ~ M_standardized + F_standardized + R_standardized + average_basket_size_standardized + unique_products_standardized + festive_spender)
 
