@@ -240,10 +240,10 @@ ref_customer <- transaction_clean |>
     Recency = as.numeric(datediff(to_date("2019-12-09"), max(FormattedDate))),
     Frequency = n_distinct(TransactionNo),
     Monetary = sum(Price * Quantity),
-    Duration = as.numeric(datediff(max(FormattedDate), min(FormattedDate))),
-    Unique_products = n_distinct(ProductName), 
-    Average_basket_size = sum(Quantity)/n_distinct(TransactionNo), 
-    Avg_spend_per_transaction = sum(Price*Quantity)/n_distinct(TransactionNo)
+    duration = as.numeric(datediff(max(FormattedDate), min(FormattedDate))),
+    unique_products = n_distinct(ProductName), 
+    average_basket_size = sum(Quantity)/n_distinct(TransactionNo), 
+    avg_spend_per_trxcn = sum(Price*Quantity)/n_distinct(TransactionNo)
     ) 
 
 #create a column to identify the month where the each customer spent the most
@@ -271,12 +271,12 @@ ref_customer <- ref_customer |>
 
 #to create target variable, find the median duration
 median_duration <- ref_customer |>
-  summarize(median_duration = median(Duration)) |>
+  summarize(median_duration = median(duration)) |>
   collect()
 
 #column for target variable - target engineering 
 ref_customer <- ref_customer |>
-  mutate(loyal_customer = ifelse(Duration > !!median_duration$median_duration, 1, 0))
+  mutate(loyal_customer = ifelse(duration > !!median_duration$median_duration, 1, 0))
 
 ref_customer
 ```
@@ -292,7 +292,7 @@ library(ggplot2)
 
 #correlation matrix
 corr_matrix <- ref_customer |>
-  select(-CustomerNo, -Duration, -festive_spender, -loyal_customer) |>
+  select(-CustomerNo, -duration, -festive_spender, -loyal_customer) |>
   correlate(use = "pairwise.complete.obs", method = "pearson")
 
 
@@ -302,7 +302,7 @@ corr_matrix |>
   rplot() + 
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-#Remove average spend per transaction(Monetary/Frequency) since it is highly correlated with average basket size
+#Remove average_spend_per_trxcn since it is highly correlated with average basket size
 ```
 5.1.2 Splitting into training and testing set
 ```{r}
@@ -325,8 +325,8 @@ ref_customer_stats <- ref_customer_split_train |>
     r_mean = mean(Recency), r_sd = sd(Recency), 
     f_mean = mean(Frequency), f_sd = sd(Frequency),
     m_mean = mean(Monetary), m_sd = sd(Monetary), 
-    unique_product_mean = mean(Unique_products), unique_product_sd = sd(Unique_products), 
-    avg_basket_size_mean = mean(Average_basket_size), avg_basket_size_sd = sd(Average_basket_size)
+    unique_product_mean = mean(unique_products), unique_product_sd = sd(unique_products), 
+    avg_basket_size_mean = mean(average_basket_size), avg_basket_size_sd = sd(average_basket_size)
   ) |> collect() #bring back to local r
 
 #apply it to the training set
@@ -334,18 +334,18 @@ ref_customer_split_train <- ref_customer_split_train |>
   mutate(R_standardized = (Recency - !!ref_customer_stats$r_mean) / !!ref_customer_stats$r_sd,
          F_standardized = (Frequency - !!ref_customer_stats$f_mean) / !!ref_customer_stats$f_sd,
          M_standardized = (Monetary - !!ref_customer_stats$m_mean) / !!ref_customer_stats$m_sd, 
-         Unique_products_standardized = (Unique_products - !!ref_customer_stats$unique_product_mean) / !!ref_customer_stats$unique_product_sd,
-         Average_basket_size_standardized = (Average_basket_size - !!ref_customer_stats$avg_basket_size_mean) / !!ref_customer_stats$avg_basket_size_sd) 
+         unique_products_standardized = (unique_products - !!ref_customer_stats$unique_product_mean) / !!ref_customer_stats$unique_product_sd,
+         average_basket_size_standardized = (average_basket_size - !!ref_customer_stats$avg_basket_size_mean) / !!ref_customer_stats$avg_basket_size_sd) 
 
 #apply it to the test set
 ref_customer_split_test <- ref_customer_split_test |>
   mutate(R_standardized = (Recency - !!ref_customer_stats$r_mean) / !!ref_customer_stats$r_sd,
          F_standardized = (Frequency - !!ref_customer_stats$f_mean) / !!ref_customer_stats$f_sd,
          M_standardized = (Monetary - !!ref_customer_stats$m_mean) / !!ref_customer_stats$m_sd, 
-         Unique_products_standardized = (Unique_products - !!ref_customer_stats$unique_product_mean) / !!ref_customer_stats$unique_product_sd,
-         Average_basket_size_standardized = (Average_basket_size - !!ref_customer_stats$avg_basket_size_mean) / !!ref_customer_stats$avg_basket_size_sd) 
+         unique_products_standardized = (unique_products - !!ref_customer_stats$unique_product_mean) / !!ref_customer_stats$unique_product_sd,
+         average_basket_size_standardized = (average_basket_size - !!ref_customer_stats$avg_basket_size_mean) / !!ref_customer_stats$avg_basket_size_sd) 
 ref_customer_split_train |>
-  sdf_describe(cols = c("R_standardized","F_standardized","M_standardized","Unique_products_standardized","Average_basket_size_standardized"))
+  sdf_describe(cols = c("R_standardized","F_standardized","M_standardized","unique_products_standardized","average_basket_size_standardized"))
 
 ```
 
@@ -357,16 +357,16 @@ Model_1<- ref_customer_split_train |>
   ml_logistic_regression(formula = loyal_customer ~ M_standardized + F_standardized + R_standardized)
 
 validation_summary1 <- ml_evaluate(Model_1, dataset = ref_customer_split_test)
-validation_summary1$area_under_roc()
+validation_summary1$area_under_roc() #0.9355022
 
 Model_1
 
 #all the variables except avg_spend_per_transaction
 Model_2 <- ref_customer_split_train |>
-  ml_logistic_regression(formula = loyal_customer ~ M_standardized + F_standardized + R_standardized + Average_basket_size_standardized + Unique_products_standardized + festive_spender)
+  ml_logistic_regression(formula = loyal_customer ~ M_standardized + F_standardized + R_standardized + average_basket_size_standardized + unique_products_standardized + festive_spender)
 
 validation_summary2 <- ml_evaluate(Model_2, dataset = ref_customer_split_test)
-validation_summary2$area_under_roc()
+validation_summary2$area_under_roc() #0.9382239
 
 Model_2
 
@@ -375,7 +375,7 @@ Model_2
 ```{r}
 tidy_glm_fit <- ref_customer_split_train |>
   ml_generalized_linear_regression(
-    formula = loyal_customer ~ M_standardized + F_standardized + R_standardized + Average_basket_size_standardized + Unique_products_standardized + festive_spender
+    formula = loyal_customer ~ M_standardized + F_standardized + R_standardized + average_basket_size_standardized + unique_products_standardized + festive_spender
   ) |> tidy() |> collect()
 
 #CI Plot
@@ -400,7 +400,7 @@ tidy_glm_fit |>
 ```{r}
 #Logistic_pipeline <- ml_pipeline(sc)
 #ML Pipeline Logistic Regression
-Logistic_pipeline <- ml_pipeline(sc) |>
+logistic_pipeline <- ml_pipeline(sc) |>
   ft_string_indexer(
     input_col = "festive_spender",
     output_col = "festive_spender_indexed"
@@ -410,7 +410,7 @@ Logistic_pipeline <- ml_pipeline(sc) |>
     output_col = "festive_spender_encoded"
   ) |>
   ft_vector_assembler(
-    input_cols = c("Monetary", "Frequency", "Recency","Average_basket_size","Unique_products"),
+    input_cols = c("Monetary", "Frequency", "Recency","average_basket_size","unique_products"),
     output_col = "continuous_features"
   ) |>
   ft_standard_scaler(
@@ -427,7 +427,7 @@ Logistic_pipeline <- ml_pipeline(sc) |>
     label_col = "loyal_customer"
   )
 
-Logistic_pipeline
+logistic_pipeline
 
 ```
 
@@ -436,7 +436,7 @@ Logistic_pipeline
 #cross-validation with elastic net
 cv <- ml_cross_validator(
   sc,
-  estimator = Logistic_pipeline,
+  estimator = logistic_pipeline,
   estimator_param_maps = list(
     logistic_regression = list(
       elastic_net_param = c(0, 0.25, 0.5, 0.75,1), #alpha
@@ -481,9 +481,9 @@ rfm_stats <- ref_customer |>
 
 #apply it to the whole data set
 ref_customer_for_kmeans <- ref_customer |>
-  mutate(R_standardized = (Recency - !!ref_customer_stats$r_mean) / !!ref_customer_stats$r_sd,
-         F_standardized = (Frequency - !!ref_customer_stats$f_mean) / !!ref_customer_stats$f_sd,
-         M_standardized = (Monetary - !!ref_customer_stats$m_mean) / !!ref_customer_stats$m_sd,)
+  mutate(R_standardized = (Recency - !!rfm_stats$r_mean) / !!rfm_stats$r_sd,
+         F_standardized = (Frequency - !!rfm_stats$f_mean) / !!rfm_stats$f_sd,
+         M_standardized = (Monetary - !!rfm_stats$m_mean) / !!rfm_stats$m_sd)
 
 #iterate through the different values of k 
 k_values <- c(2, 3, 4, 5, 6)
@@ -503,7 +503,7 @@ for (i in 1:length(k_values)) {
   #calculate silhouette scores
   silhouette_scores[i] <- ml_compute_silhouette_measure(
   k_means_model,
-  dataset = ref_customer,
+  dataset = ref_customer_for_kmeans,
   distance_measure = "squaredEuclidean"
 )
   
@@ -576,25 +576,6 @@ predictions |>
   arrange(cluster) 
 ```
 
-5.4.4 Visualizing the clusters
-```{r}
-predictions <- ml_transform(kmeans_pipeline_model, ref_customer) |>
-  collect()
-#install.packages("scatterplot3d")
-library(scatterplot3d)
-
-recency <- unlist(lapply(predictions$features_stdz, function(x) x[[1]]))
-frequency <- unlist(lapply(predictions$features_stdz, function(x) x[[2]]))
-monetary <- unlist(lapply(predictions$features_stdz, function(x) x[[3]]))
-
-predictions$cluster <- as.factor(predictions$cluster)
-
-cluster_colors <- c("red", "blue", "green","yellow")
-colors <- cluster_colors[predictions$cluster]
-
-# Create the 3D scatter plot
-scatterplot3d(recency, frequency, monetary, color = colors)
-```
 
 5.5 Deploy Kmeans model to production using Plumber
 ```{r}
