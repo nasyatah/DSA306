@@ -13,7 +13,7 @@ date: "2023-11-11"
 #transactions <- arrow::open_dataset(sources = "transactions.csv", format = "csv")
 #SAVE DATASET IN PARQUET FORMAT HERE
 #Create AAPL directory
-# dir.create("parquet_folder")  
+#dir.create("parquet_folder")  
 #write parquet file to directory
 #arrow::write_dataset(transactions,format = "parquet", path = "parquet_folder",partitioning = NULL)
 ```
@@ -351,7 +351,7 @@ Model_1<- ref_customer_split_train |>
   ml_logistic_regression(formula = loyal_customer ~ M_standardized + F_standardized + R_standardized)
 
 validation_summary1 <- ml_evaluate(Model_1, dataset = ref_customer_split_test)
-validation_summary1$area_under_roc() #value is 0.9355022
+validation_summary1$area_under_roc() #value is 0.936
 
 Model_1
 
@@ -360,7 +360,7 @@ Model_2 <- ref_customer_split_train |>
   ml_logistic_regression(formula = loyal_customer ~ M_standardized + F_standardized + R_standardized + average_basket_size_standardized + unique_products_standardized + festive_spender)
 
 validation_summary2 <- ml_evaluate(Model_2, dataset = ref_customer_split_test)
-validation_summary2$area_under_roc() #value is 0.9382239
+validation_summary2$area_under_roc() #value is 0.938
 
 Model_2 #Model_2 is the chosen model
 
@@ -580,6 +580,7 @@ library(plumber)
 plumb(file = "spark-plumber2.R") |>
   pr_run(port = 8000)
 ```
+
 ```{r}
 #logistic
 library(plumber)
