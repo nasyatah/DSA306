@@ -10,12 +10,12 @@ date: "2023-11-11"
 1.1 Reading the csv file and saving it as Parquet format
 ```{r}
 # OPEN CSV FILE HERE
-# transactions <- arrow::open_dataset(sources = "transactions.csv", format = "csv")
-# SAVE DATASET IN PARQUET FORMAT HERE
-# Create AAPL directory
-# dir.create("parquet_folder")  
-# write parquet file to directory
-# arrow::write_dataset(transactions,format = "parquet", path = "parquet_folder",partitioning = NULL)
+transactions <- arrow::open_dataset(sources = "transactions.csv", format = "csv")
+#SAVE DATASET IN PARQUET FORMAT HERE
+#Create AAPL directory
+ dir.create("parquet_folder")  
+#write parquet file to directory
+arrow::write_dataset(transactions,format = "parquet", path = "parquet_folder",partitioning = NULL)
 ```
 
 
@@ -117,7 +117,7 @@ transaction_clean <- transaction_clean |>
   mutate(FormattedDate = concat(year, "-", month, "-", day)) |>
   dplyr::select(-month, -day, -year, -Date)
 
-#convert to date format from chr
+#convert to date format from character format
 transaction_clean <-transaction_clean |>
   mutate(FormattedDate = to_date(FormattedDate))
 
@@ -136,14 +136,14 @@ library(ggplot2)
 country_plot <- transaction_clean |> 
   mutate(Country = ifelse(Country == "United Kingdom", Country, "Others"))
 
+#plot geographical distribution of sales
 dbplot_bar(country_plot, x = Country, Customers = n_distinct(CustomerNo)) + 
   theme_minimal()
-
-#after geographical an
 ```
 
 3.2 Visualizing transaction volume by month
 ```{r}
+#monthly transactions
 temp_df1 <- transaction_clean |> 
   mutate(month = Month(FormattedDate)) |>
   group_by(month) |>
@@ -156,13 +156,11 @@ ggplot(temp_df1, aes(x = month, y = Number_of_transactions)) +
   scale_x_continuous(breaks = 1:12, labels = month.abb[1:12]) +
   labs(x = "Month", y = "Number of Transactions") + 
   theme_minimal()
-
-temp_df1
 ```
 
 3.3 Average spend per transaction
 ```{r}
-#To check for high variablity, look at standard deviation or IQR
+#average spend per transaction
 temp_df2 <- transaction_clean |>
   group_by(TransactionNo) |>
   summarize(avg_spend = sum(Price*Quantity)/n_distinct(TransactionNo))
@@ -173,19 +171,16 @@ temp_df2 <- temp_df2 |>
   filter(avg_spend < 25000) |>
   collect() #collect back to r for visualization purposes
 
-#Plot
+#plotting average spend per transaction
 ggplot(temp_df2, aes(x = avg_spend)) +
   geom_histogram(binwidth = 1000, fill = "blue", color = "black", alpha = 0.7) +
   labs(title = "Histogram of Average Spend per Transaction", x = "Average Spend", y = "Frequency") +
   theme_minimal()
-
-
-
 ```
 
 3.4 Number of unique products bought per customer
 ```{r}
-#get standard deviation in spark 
+#number of unique products bought per customer
 temp_df3 <- transaction_clean |>
   group_by(CustomerNo) |>
   summarize(no_of_unique_products = n_distinct(ProductNo))
@@ -194,32 +189,29 @@ sdf_describe(temp_df3, cols = "no_of_unique_products")
 
 temp_df3 <- temp_df3 |>
   filter(no_of_unique_products < 500) |>
-  collect()
+  collect() #collect back to r for visualization purposes
 
+#plotting number of unique products bought per customer
 ggplot(temp_df3, aes(x = no_of_unique_products)) +
   geom_histogram(binwidth = 10, fill = "blue", color = "black", alpha = 0.7) +
   labs(title = "Histogram of unique products bought per customer", x = "Number of Unique Products", y = "Frequency") + 
   theme_minimal()
-
-
 ```
 
 3.5 Average Basket Size
 ```{r}
-
-#use sdf_describe
+#average basket size per customer
 temp_df4 <- transaction_clean |>
   group_by(CustomerNo) |>
   summarize(avg_basket_size = sum(Quantity)/n_distinct(TransactionNo))
 
 sdf_describe(temp_df4, cols = "avg_basket_size")
 
-#Collect data back into r for visualization
 temp_df4 <- temp_df4 |>
   filter(avg_basket_size < 5000) |>
-  collect()
+  collect() #collect back to r for visualization purposes
 
-#Plot
+#plotting average basket size per customer
 ggplot(temp_df4, aes(x = avg_basket_size)) +
   geom_histogram(binwidth = 50, fill = "blue", color = "black", alpha = 0.7) +
   labs(title = "Histogram of Average Basket Size per customer", x = "Average Basket Size", y = "Frequency") + 
@@ -263,7 +255,7 @@ temp_df5 <- transaction_clean |>
 #left_join the customer_ref with the month_with_max_spending column in temp_df
 ref_customer <- left_join(ref_customer, temp_df5, by = "CustomerNo")
 
-#recode the values in month_with_max_spending to 0 or 1, where customers who spent the most in Oct-Nov will be assigned 1 and the rest are assigned 0. This feature will be used to idenitfy festive spenders. 
+#recode the values in month_with_max_spending to 0 or 1, where customers who spent the most within October to December period will be assigned 1 and the rest are assigned 0. This feature will be used to idenitfy festive spenders. 
 ref_customer <- ref_customer |>
   mutate(month_with_max_spending = ifelse(month_with_max_spending >= 10, "1", "0")) |>
   rename(festive_spender = month_with_max_spending)
@@ -290,13 +282,13 @@ ref_customer
 library(corrr)
 library(ggplot2)
 
-#correlation matrix
+#correlation matrix of all numeric predictor variables
 corr_matrix <- ref_customer |>
   select(-CustomerNo, -duration, -festive_spender, -loyal_customer) |>
   correlate(use = "pairwise.complete.obs", method = "pearson")
 
 
-#plot the sample correlations
+#plot the correlation matrix
 corr_matrix |>
   shave(upper = TRUE) |>
   rplot() + 
@@ -304,13 +296,15 @@ corr_matrix |>
 
 #Remove average_spend_per_trxcn since it is highly correlated with average basket size
 ```
+
 5.1.2 Splitting into training and testing set
 ```{r}
+#assigning 80% to training set and 20% to testing set
 ref_customer_split <- ref_customer |>  
   sdf_random_split(training = 0.8, testing = 0.2, seed = 44)
 
-ref_customer_split_train <- ref_customer_split$training
-ref_customer_split_test <- ref_customer_split$testing
+ref_customer_split_train <- ref_customer_split$training #training set
+ref_customer_split_test <- ref_customer_split$testing #testing set
 
 ref_customer_split_train
 ```
@@ -319,7 +313,7 @@ ref_customer_split_train
 ```{r}
 #standardised values
 
-#get the mean and sd values based on the training set
+#get the mean and standard deviation values based on the training set
 ref_customer_stats <- ref_customer_split_train |>
   summarize(
     r_mean = mean(Recency), r_sd = sd(Recency), 
@@ -352,31 +346,32 @@ ref_customer_split_train |>
 5.1.4 Evaluating the models
 ```{r}
 
-#only rfm
+#Model_1 only containing standardised RFM values
 Model_1<- ref_customer_split_train |> 
   ml_logistic_regression(formula = loyal_customer ~ M_standardized + F_standardized + R_standardized)
 
 validation_summary1 <- ml_evaluate(Model_1, dataset = ref_customer_split_test)
-validation_summary1$area_under_roc() #0.9355022
+validation_summary1$area_under_roc() #value is 0.9355022
 
 Model_1
 
-#all the variables except avg_spend_per_trxcn
+#Model_2 containing all the predictor variables except avg_spend_per_trxcn
 Model_2 <- ref_customer_split_train |>
   ml_logistic_regression(formula = loyal_customer ~ M_standardized + F_standardized + R_standardized + average_basket_size_standardized + unique_products_standardized + festive_spender)
 
 validation_summary2 <- ml_evaluate(Model_2, dataset = ref_customer_split_test)
-validation_summary2$area_under_roc() #0.9382239
+validation_summary2$area_under_roc() #value is 0.9382239
 
-Model_2
+Model_2 #Model_2 is the chosen model
 
 ```
-5.1.5 CI plot - with all the variables 
+5.1.5 Confidence Interval plot - with all the variables 
 ```{r}
+#confidence interval (CI) of predictor variables in Model_2
 tidy_glm_fit <- ref_customer_split_train |>
   ml_generalized_linear_regression(
     formula = loyal_customer ~ M_standardized + F_standardized + R_standardized + average_basket_size_standardized + unique_products_standardized + festive_spender
-  ) |> tidy() |> collect()
+  ) |> tidy() |> collect() #collect back to r for visualization purposes
 
 #CI Plot
 library(ggplot2)
@@ -398,7 +393,6 @@ tidy_glm_fit |>
 
 5.2.1 Logistic Regression ML Pipeline
 ```{r}
-#Logistic_pipeline <- ml_pipeline(sc)
 #ML Pipeline Logistic Regression
 logistic_pipeline <- ml_pipeline(sc) |>
   ft_string_indexer(
@@ -439,8 +433,8 @@ cv <- ml_cross_validator(
   estimator = logistic_pipeline,
   estimator_param_maps = list(
     logistic_regression = list(
-      elastic_net_param = c(0, 0.25, 0.5, 0.75,1), #alpha
-      reg_param = c(0, 0.001, 0.01, 0.1) #lambda
+      elastic_net_param = c(0, 0.25, 0.5, 0.75,1), #alpha value range
+      reg_param = c(0, 0.001, 0.01, 0.1) #lambda value range
     )
   ),
   evaluator = ml_binary_classification_evaluator(
@@ -452,10 +446,11 @@ cv <- ml_cross_validator(
   seed = 1337
 )
 
+#created pipeline model 
 cv_model <- ml_fit(cv, ref_customer_split_train) 
 
 ml_validation_metrics(cv_model) |>
-  arrange(desc(areaUnderROC))
+  arrange(desc(areaUnderROC)) #showed best case where alpha & lambda are 0
 
 #save the pipeline model to disk
 ml_save(cv_model$best_model, path = "spark_model1", overwrite = TRUE)
@@ -470,8 +465,8 @@ ml_save(cv_model$best_model, path = "spark_model1", overwrite = TRUE)
 
 5.3.1 Determining the optimal number of clusters 
 ```{r}
-#standardize rfm values
-#get the mean and sd values based on the whole dataset
+#standardize RFM values
+#get the mean and standard deviation values based on the whole ref_customer dataset
 rfm_stats <- ref_customer |>
   summarize(
     r_mean = mean(Recency), r_sd = sd(Recency), 
@@ -479,7 +474,7 @@ rfm_stats <- ref_customer |>
     m_mean = mean(Monetary), m_sd = sd(Monetary), 
    ) |> collect() #bring back to local r
 
-#apply it to the whole data set
+#apply it to the whole dataset
 ref_customer_for_kmeans <- ref_customer |>
   mutate(R_standardized = (Recency - !!rfm_stats$r_mean) / !!rfm_stats$r_sd,
          F_standardized = (Frequency - !!rfm_stats$f_mean) / !!rfm_stats$f_sd,
@@ -509,7 +504,7 @@ for (i in 1:length(k_values)) {
   
 }
 
-#find the best value of k - plot silhouette score against k 
+#find the best value of k - plot silhouette score against k values 
 library(ggplot2)
 
 # Create a data frame for k values and silhouette scores
@@ -517,6 +512,7 @@ silhouette_data <- data.frame(k = k_values, silhouette_score = silhouette_scores
 
 silhouette_data
 
+#plot of silhoutte scores against k-values
 ggplot(silhouette_data, aes(k,silhouette_score)) +
   geom_line() +
   theme_minimal()
@@ -549,10 +545,9 @@ kmeans_pipeline <- ml_pipeline(sc) |>
     init_mode = "random",
     seed = 8472
   ) 
-  
+
+#created pipeline model 
 kmeans_pipeline_model <- ml_fit(kmeans_pipeline, ref_customer)
-
-
 
 #save the pipeline model to disk
 ml_save(kmeans_pipeline_model, path = "spark_model2", overwrite = TRUE)
@@ -577,13 +572,19 @@ predictions |>
 ```
 
 
-5.5 Deploy Kmeans model to production using Plumber
+5.5 Deploy models to production using Plumber
 ```{r}
+#kmeans
 library(plumber)
-
 #Start a Web Service
 plumb(file = "spark-plumber2.R") |>
   pr_run(port = 8000)
-
+```
+```{r}
+#logistic
+library(plumber)
+#Start a Web Service
+plumb(file = "spark-plumber1.R") |>
+  pr_run(port = 8000)
 ```
 
